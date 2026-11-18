@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản Lý Nhân Sự & Ca Trực Sân Bay</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <!-- Màn hình Đăng nhập -->
+    <div id="login-section" class="container card hidden">
+        <h2>Đăng Nhập Hệ Thống Ca Trực Sân Bay</h2>
+        <form id="login-form">
+            <input type="email" id="login-email" placeholder="Email nhân viên" required>
+            <input type="password" id="login-password" placeholder="Mật khẩu" required>
+            <button type="submit" class="btn-primary">Đăng nhập</button>
+        </form>
+    </div>
+
+    <!-- Màn hình Chính -->
+    <div id="app-section" class="container hidden">
+        <header class="topbar">
+            <div>
+                <h1>Điều Hành Nhân Sự Sân Bay (Ca 24h: 08:00 - 08:00)</h1>
+                <span id="user-badge" class="badge bg-dark"></span>
+            </div>
+            <div class="controls">
+                <label>Ngày trực: <input type="date" id="roster-date"></label>
+                <button id="btn-auto-schedule" class="btn-primary hidden">Chạy Xếp Ca & Cuốn Chiếu</button>
+                <button id="btn-logout" class="btn-outline">Đăng xuất</button>
+            </div>
+        </header>
+
+        <!-- Khu vực Nhập Lịch Bay (Dành cho Ca trưởng / Nhân viên được cấp quyền) -->
+        <section id="flight-admin-panel" class="card hidden">
+            <h3>Nhập Lịch Chuyến Bay Trong Ca</h3>
+            <form id="flight-form" class="grid-form">
+                <input type="text" id="f-number" placeholder="Số hiệu (VD: VN1554)" required>
+                <select id="f-type">
+                    <option value="DEP">Chuyến Đi (4-5 người, >=3 năm KN)</option>
+                    <option value="ARR">Chuyến Đến (1-3 người, >=2 năm KN)</option>
+                </select>
+                <select id="f-scope">
+                    <option value="DOM">Quốc nội (Mở quầy trước 2h)</option>
+                    <option value="INT">Quốc tế (Mở quầy trước 3h)</option>
+                </select>
+                <input type="datetime-local" id="f-time" required>
+                <input type="text" id="f-gate" placeholder="Quầy / Cửa (VD: Quầy 12-16)">
+                <button type="submit" class="btn-primary">Thêm chuyến bay</button>
+            </form>
+        </section>
+
+        <!-- Bảng Lịch Bay -->
+        <section class="card">
+            <h3>Lịch Chuyến Bay & Khung Giờ Mở Quầy</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Chuyến bay</th>
+                            <th>Loại ca</th>
+                            <th>Phạm vi</th>
+                            <th>Giờ mở - đóng quầy</th>
+                            <th>Giờ cất/hạ cánh</th>
+                            <th>Vị trí</th>
+                        </tr>
+                    </thead>
+                    <tbody id="flights-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Bảng Phân Ca & Nghỉ Ngơi Tại Chỗ Cuốn Chiếu -->
+        <section class="card">
+            <h3>Bảng Phân Ca 24h, Kiểm Tra Thiết Bị & Giờ Nghỉ Tại Chỗ</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nhân viên</th>
+                            <th>Thâm niên</th>
+                            <th>Trạng thái ca</th>
+                            <th>Nhiệm vụ đầu ca</th>
+                            <th>Nghỉ ban ngày (3-6h)</th>
+                            <th>Nghỉ ban đêm (3-7h)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="roster-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Đăng ký & Duyệt Ngày Off Tháng -->
+        <section class="card">
+            <h3>Đăng Ký & Quản Lý Ngày Off Tháng (1-3 ngày/tháng)</h3>
+            <form id="leave-form" class="grid-form">
+                <input type="date" id="leave-date" required>
+                <input type="text" id="leave-reason" placeholder="Lý do xin nghỉ phiên trực">
+                <button type="submit" class="btn-primary">Gửi đăng ký off</button>
+            </form>
+            <div class="table-wrap" style="margin-top: 12px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nhân viên</th>
+                            <th>Ngày trực xin nghỉ</th>
+                            <th>Lý do</th>
+                            <th>Trạng thái</th>
+                            <th>Thao tác</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaves-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Quản lý Nhân sự & Phân quyền Chức năng (Ca trưởng) -->
+        <section id="staff-admin-panel" class="card hidden">
+            <h3>Danh Sách Nhân Sự & Phân Quyền Chức Năng</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Mã NV</th>
+                            <th>Họ tên</th>
+                            <th>Kinh nghiệm</th>
+                            <th>Kíp trực</th>
+                            <th>Vai trò</th>
+                            <th>Ủy quyền chức năng</th>
+                        </tr>
+                    </thead>
+                    <tbody id="staff-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="scheduler.js"></script>
+    <script src="auth-rbac.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
