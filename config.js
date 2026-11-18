@@ -1,5 +1,5 @@
 // config.js
-const SUPABASE_URL = 'https://jqvnbzicwuacimfcpqjp.supabase.co/rest/v1/';
+const SUPABASE_URL = 'https://jqvnbzicwuacimfcpqjp.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impxdm5iemljd3VhY2ltZmNwcWpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5NzMxNDQsImV4cCI6MjExMDU0OTE0NH0._mps1P3T41GwatoVPfhBRk9dYfAwuRY_osdl_7K-fmQ';
 
 if (!window.supabase) {
