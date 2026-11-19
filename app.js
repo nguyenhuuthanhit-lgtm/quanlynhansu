@@ -15,23 +15,26 @@
   }
 
   function esc(str) {
+    var apos = String.fromCharCode(39);
     var s = String(str === undefined || str === null ? "" : str);
     return s
-      .replace(/&/g, "&")
-      .replace(/</g, "<")
-      .replace(/>/g, ">")
-      .replace(/"/g, """)
-      .replace(/'/g, "'");
+      .split("&").join("&")
+      .split("<").join("<")
+      .split(">").join(">")
+      .split('"').join(""")
+      .split(apos).join("'");
   }
 
   window.loadDashboardData = function () {
-    if (!sb()) return Promise.resolve();
+    if (!sb()) {
+      return Promise.resolve();
+    }
     var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
-    var promise = typeof window.fetchDailySchedule === "function"
+    var loader = (typeof window.fetchDailySchedule === "function")
       ? window.fetchDailySchedule(date)
       : Promise.resolve();
 
-    return promise.then(function () {
+    return loader.then(function () {
       renderStaffDropdown();
       renderScheduleTable();
     });
@@ -39,7 +42,9 @@
 
   function renderStaffDropdown() {
     var sel = document.getElementById("offStaffSelect");
-    if (!sel || !window.rosterState) return;
+    if (!sel || !window.rosterState) {
+      return;
+    }
     var list = window.rosterState.staffList || [];
     var html = "";
     for (var i = 0; i < list.length; i++) {
@@ -53,56 +58,60 @@
 
   function renderScheduleTable() {
     var tbody = document.getElementById("scheduleBody");
-    if (!tbody || !window.rosterState) return;
+    if (!tbody || !window.rosterState) {
+      return;
+    }
+    var apos = String.fromCharCode(39);
     var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
     var list = window.rosterState.staffList || [];
-    var rowsHtml = "";
+    var rows = "";
 
     for (var i = 0; i < list.length; i++) {
       var s = list[i];
+      var sid = esc(s.id);
       var rec = window.getOrCreateRoster(s.id, date);
       var hasLeave = !!(window.rosterState.leavesByStaff && window.rosterState.leavesByStaff[s.id]);
       var isOff = !!(rec.is_day_off || hasLeave);
       var isCore = Number(s.experience_years) >= 3;
 
-      var extraList = rec.extra_shifts || [];
+      var extraArr = rec.extra_shifts || [];
       var extraHtml = "";
-      for (var j = 0; j < extraList.length; j++) {
+      for (var j = 0; j < extraArr.length; j++) {
         extraHtml += '<div class="pill">' +
-          '<input type="text" value="' + esc(extraList[j]) + '" placeholder="Ca ' + (j + 3) + '..." ' +
-          'onchange="window.onEditExtraShift(\'' + esc(s.id) + "', " + j + ', this.value)" />' +
-          '<button type="button" onclick="window.onRemoveExtraShift(\'' + esc(s.id) + "', " + j + ')">x</button>' +
+          '<input type="text" value="' + esc(extraArr[j]) + '" placeholder="Ca ' + (j + 3) + '..." ' +
+          'onchange="window.onEditExtraShift(' + apos + sid + apos + ", " + j + ', this.value)" />' +
+          '<button type="button" onclick="window.onRemoveExtraShift(' + apos + sid + apos + ", " + j + ')">x</button>' +
           "</div>";
       }
 
-      var breakList = rec.break_off_slots || [];
+      var breakArr = rec.break_off_slots || [];
       var breakHtml = "";
-      for (var k = 0; k < breakList.length; k++) {
+      for (var k = 0; k < breakArr.length; k++) {
         breakHtml += '<div class="pill">' +
-          "<span>OFF " + esc(breakList[k]) + "</span>" +
-          '<button type="button" onclick="window.onRemoveBreakSlot(\'' + esc(s.id) + "', " + k + ')">x</button>' +
+          "<span>OFF " + esc(breakArr[k]) + "</span>" +
+          '<button type="button" onclick="window.onRemoveBreakSlot(' + apos + sid + apos + ", " + k + ')">x</button>' +
           "</div>";
       }
 
-      rowsHtml += "<tr>" +
+      rows += "<tr>" +
         "<td><strong>" + esc(s.employee_code) + "</strong></td>" +
         "<td>" + esc(s.full_name) + "</td>" +
         "<td>" + (isCore ? '<span class="badge-core">Lam chinh (3-5 nam)</span>' : '<span class="badge-intern">Hoc viec</span>') + "</td>" +
         '<td><input type="text" value="' + esc(rec.shift_1) + '" ' + (isOff ? "disabled" : "") +
-          ' placeholder="Vi tri Ca 1" onchange="window.onEditMainShift(\'' + esc(s.id) + "', 'shift_1', this.value)\" /></td>" +
+          ' placeholder="Vi tri Ca 1" onchange="window.onEditMainShift(' + apos + sid + apos + ", " + apos + "shift_1" + apos + ', this.value)" /></td>' +
         '<td><input type="text" value="' + esc(rec.shift_2) + '" ' + (isOff ? "disabled" : "") +
-          ' placeholder="Vi tri Ca 2" onchange="window.onEditMainShift(\'' + esc(s.id) + "', 'shift_2', this.value)\" /></td>" +
+          ' placeholder="Vi tri Ca 2" onchange="window.onEditMainShift(' + apos + sid + apos + ", " + apos + "shift_2" + apos + ', this.value)" /></td>' +
         '<td><div class="pill-list">' + extraHtml + '</div>' +
           '<button type="button" class="btn-primary btn-sm" ' + (isOff ? "disabled" : "") +
-          ' onclick="window.onAddExtraShift(\'' + esc(s.id) + '\')">+ Them ca sau</button></td>' +
+          ' onclick="window.onAddExtraShift(' + apos + sid + apos + ')">+ Them ca sau</button></td>' +
         "<td>" + (isOff ? '<span class="badge-off">OFF CA NGAY</span><br>' : "") +
           '<div class="pill-list">' + breakHtml + "</div></td>" +
-        '<td><button type="button" class="btn-warning btn-sm" onclick="window.onToggleDayOff(\'' + esc(s.id) + '\')">' +
+        '<td><button type="button" class="btn-warning btn-sm" onclick="window.onToggleDayOff(' + apos + sid + apos + ')">' +
           (isOff ? "Mo lam lai" : "Cat ngay OFF") + "</button></td>" +
         "</tr>";
     }
 
-    tbody.innerHTML = rowsHtml;
+    tbody.innerHTML = rows;
   }
 
   var staffForm = document.getElementById("staffForm");
@@ -166,7 +175,7 @@
     var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
     var rec = window.getOrCreateRoster(staffId, date);
     rec.break_off_slots.splice(idx, 1);
-    var p = typeof window.upsertSingleRoster === "function"
+    var p = (typeof window.upsertSingleRoster === "function")
       ? window.upsertSingleRoster(rec)
       : Promise.resolve();
     p.then(renderScheduleTable);
@@ -176,7 +185,7 @@
     var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
     var rec = window.getOrCreateRoster(staffId, date);
     rec.is_day_off = !rec.is_day_off;
-    var p = typeof window.upsertSingleRoster === "function"
+    var p = (typeof window.upsertSingleRoster === "function")
       ? window.upsertSingleRoster(rec)
       : Promise.resolve();
     p.then(renderScheduleTable);
@@ -186,10 +195,14 @@
   if (btnCutDayOff) {
     btnCutDayOff.addEventListener("click", function () {
       var client = sb();
-      if (!client) return;
+      if (!client) {
+        return;
+      }
       var staffId = document.getElementById("offStaffSelect").value;
       var date = (offDateEl && offDateEl.value) || (workDateEl && workDateEl.value) || todayStr;
-      if (!staffId) return;
+      if (!staffId) {
+        return;
+      }
 
       client.from("leave_requests").insert({
         staff_id: staffId,
@@ -198,7 +211,9 @@
         status: "approved",
         approved_by: (window.currentUser && window.currentUser.id) ? window.currentUser.id : null
       }).then(function () {
-        if (workDateEl) workDateEl.value = date;
+        if (workDateEl) {
+          workDateEl.value = date;
+        }
         return window.loadDashboardData();
       }).then(function () {
         var rec = window.getOrCreateRoster(staffId, date);
@@ -214,7 +229,9 @@
   if (btnCutTimeOff) {
     btnCutTimeOff.addEventListener("click", function () {
       var client = sb();
-      if (!client) return;
+      if (!client) {
+        return;
+      }
       var staffId = document.getElementById("offStaffSelect").value;
       var date = (offDateEl && offDateEl.value) || (workDateEl && workDateEl.value) || todayStr;
       var start = document.getElementById("offStart").value;
@@ -224,7 +241,9 @@
         return;
       }
 
-      if (workDateEl) workDateEl.value = date;
+      if (workDateEl) {
+        workDateEl.value = date;
+      }
       window.loadDashboardData().then(function () {
         var rec = window.getOrCreateRoster(staffId, date);
         rec.break_off_slots.push(start + "-" + end);
