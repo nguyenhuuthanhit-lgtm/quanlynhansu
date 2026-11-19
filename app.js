@@ -264,11 +264,13 @@
         alert("Vui long nhap Ma NV va Ho ten");
         return;
       }
-client.from("profiles").insert({
+
+      client.from("profiles").insert({
         employee_code: employeeCode,
         full_name: fullName,
         role: "staff",
         shift_group: 1,
+        base_shift_type: "DAY",
         experience_years: expYears,
         is_active: true
       }).then(function (res) {
