@@ -10,50 +10,89 @@
     offDateEl.value = todayStr;
   }
 
-  function sb() {
-    return window.supabaseClient;
+  function getClient() {
+    return window.supabaseClient || null;
   }
 
-  function esc(str) {
-    var apos = String.fromCharCode(39);
-    var s = String(str === undefined || str === null ? "" : str);
-    return s
-      .split("&").join("&")
-      .split("<").join("<")
-      .split(">").join(">")
-      .split('"').join(""")
-      .split(apos).join("'");
+  function getSelectedDate() {
+    if (workDateEl && workDateEl.value) {
+      return workDateEl.value;
+    }
+    return todayStr;
+  }
+
+  function getOffDate() {
+    if (offDateEl && offDateEl.value) {
+      return offDateEl.value;
+    }
+    return getSelectedDate();
+  }
+
+  function isCoreStaff(staff) {
+    return Number(staff.experience_years) >= 3;
+  }
+
+  function isStaffOff(staffId, rec) {
+    var leaves = (window.rosterState && window.rosterState.leavesByStaff) || {};
+    return Boolean((rec && rec.is_day_off) || leaves[staffId]);
   }
 
   window.loadDashboardData = function () {
-    if (!sb()) {
+    var client = getClient();
+    if (!client) {
       return Promise.resolve();
     }
-    var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
-    var loader = (typeof window.fetchDailySchedule === "function")
+    var date = getSelectedDate();
+    var fetchTask = (typeof window.fetchDailySchedule === "function")
       ? window.fetchDailySchedule(date)
       : Promise.resolve();
 
-    return loader.then(function () {
+    return fetchTask.then(function () {
       renderStaffDropdown();
       renderScheduleTable();
     });
   };
 
   function renderStaffDropdown() {
-    var sel = document.getElementById("offStaffSelect");
-    if (!sel || !window.rosterState) {
+    var selectEl = document.getElementById("offStaffSelect");
+    if (!selectEl || !window.rosterState) {
       return;
     }
+    selectEl.innerHTML = "";
     var list = window.rosterState.staffList || [];
-    var html = "";
+
     for (var i = 0; i < list.length; i++) {
       var s = list[i];
-      var lvl = Number(s.experience_years) >= 3 ? "Lam chinh 3-5 nam" : "Hoc viec";
-      html += '<option value="' + esc(s.id) + '">' +
-        esc(s.employee_code) + " - " + esc(s.full_name) + " (" + lvl + ")</option>";
+      var opt = document.createElement("option");
+      var roleLabel = isCoreStaff(s) ? "Lam chinh 3-5 nam" : "Hoc viec";
+      opt.value = s.id;
+      opt.textContent = (s.employee_code || "") + " - " + (s.full_name || "") + " (" + roleLabel + ")";
+      selectEl.appendChild(opt);
     }
-    sel.innerHTML = html;
+  }
+
+  function makeCell(text, isBold) {
+    var td = document.createElement("td");
+    if (isBold) {
+      var strong = document.createElement("strong");
+      strong.textContent = text;
+      td.appendChild(strong);
+    } else {
+      td.textContent = text;
+    }
+    return td;
+  }
+
+  function makeShiftInput(value, placeholder, disabled, onChangeFn) {
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = value || "";
+    input.placeholder = placeholder;
+    input.disabled = Boolean(disabled);
+    input.addEventListener("change", function () {
+      onChangeFn(input.value);
+    });
+    return input;
   }
 
   function renderScheduleTable() {
@@ -61,72 +100,170 @@
     if (!tbody || !window.rosterState) {
       return;
     }
-    var apos = String.fromCharCode(39);
-    var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
+    tbody.innerHTML = "";
+    var date = getSelectedDate();
     var list = window.rosterState.staffList || [];
-    var rows = "";
 
     for (var i = 0; i < list.length; i++) {
-      var s = list[i];
-      var sid = esc(s.id);
-      var rec = window.getOrCreateRoster(s.id, date);
-      var hasLeave = !!(window.rosterState.leavesByStaff && window.rosterState.leavesByStaff[s.id]);
-      var isOff = !!(rec.is_day_off || hasLeave);
-      var isCore = Number(s.experience_years) >= 3;
+      (function (staff) {
+        var rec = window.getOrCreateRoster(staff.id, date);
+        var offToday = isStaffOff(staff.id, rec);
+        var core = isCoreStaff(staff);
+        var tr = document.createElement("tr");
 
-      var extraArr = rec.extra_shifts || [];
-      var extraHtml = "";
-      for (var j = 0; j < extraArr.length; j++) {
-        extraHtml += '<div class="pill">' +
-          '<input type="text" value="' + esc(extraArr[j]) + '" placeholder="Ca ' + (j + 3) + '..." ' +
-          'onchange="window.onEditExtraShift(' + apos + sid + apos + ", " + j + ', this.value)" />' +
-          '<button type="button" onclick="window.onRemoveExtraShift(' + apos + sid + apos + ", " + j + ')">x</button>' +
-          "</div>";
-      }
+        tr.appendChild(makeCell(staff.employee_code || "", true));
+        tr.appendChild(makeCell(staff.full_name || "", false));
 
-      var breakArr = rec.break_off_slots || [];
-      var breakHtml = "";
-      for (var k = 0; k < breakArr.length; k++) {
-        breakHtml += '<div class="pill">' +
-          "<span>OFF " + esc(breakArr[k]) + "</span>" +
-          '<button type="button" onclick="window.onRemoveBreakSlot(' + apos + sid + apos + ", " + k + ')">x</button>' +
-          "</div>";
-      }
+        var typeTd = document.createElement("td");
+        var badge = document.createElement("span");
+        badge.className = core ? "badge-core" : "badge-intern";
+        badge.textContent = core ? "Lam chinh (3-5 nam)" : "Hoc viec";
+        typeTd.appendChild(badge);
+        tr.appendChild(typeTd);
 
-      rows += "<tr>" +
-        "<td><strong>" + esc(s.employee_code) + "</strong></td>" +
-        "<td>" + esc(s.full_name) + "</td>" +
-        "<td>" + (isCore ? '<span class="badge-core">Lam chinh (3-5 nam)</span>' : '<span class="badge-intern">Hoc viec</span>') + "</td>" +
-        '<td><input type="text" value="' + esc(rec.shift_1) + '" ' + (isOff ? "disabled" : "") +
-          ' placeholder="Vi tri Ca 1" onchange="window.onEditMainShift(' + apos + sid + apos + ", " + apos + "shift_1" + apos + ', this.value)" /></td>' +
-        '<td><input type="text" value="' + esc(rec.shift_2) + '" ' + (isOff ? "disabled" : "") +
-          ' placeholder="Vi tri Ca 2" onchange="window.onEditMainShift(' + apos + sid + apos + ", " + apos + "shift_2" + apos + ', this.value)" /></td>' +
-        '<td><div class="pill-list">' + extraHtml + '</div>' +
-          '<button type="button" class="btn-primary btn-sm" ' + (isOff ? "disabled" : "") +
-          ' onclick="window.onAddExtraShift(' + apos + sid + apos + ')">+ Them ca sau</button></td>' +
-        "<td>" + (isOff ? '<span class="badge-off">OFF CA NGAY</span><br>' : "") +
-          '<div class="pill-list">' + breakHtml + "</div></td>" +
-        '<td><button type="button" class="btn-warning btn-sm" onclick="window.onToggleDayOff(' + apos + sid + apos + ')">' +
-          (isOff ? "Mo lam lai" : "Cat ngay OFF") + "</button></td>" +
-        "</tr>";
+        var s1Td = document.createElement("td");
+        s1Td.appendChild(makeShiftInput(rec.shift_1, "Vi tri Ca 1", offToday, function (val) {
+          rec.shift_1 = val;
+        }));
+        tr.appendChild(s1Td);
+
+        var s2Td = document.createElement("td");
+        s2Td.appendChild(makeShiftInput(rec.shift_2, "Vi tri Ca 2", offToday, function (val) {
+          rec.shift_2 = val;
+        }));
+        tr.appendChild(s2Td);
+
+        var extraTd = document.createElement("td");
+        var extraListDiv = document.createElement("div");
+        extraListDiv.className = "pill-list";
+        var extraArr = rec.extra_shifts || [];
+
+        for (var j = 0; j < extraArr.length; j++) {
+          (function (idx) {
+            var pill = document.createElement("div");
+            pill.className = "pill";
+
+            var exInput = document.createElement("input");
+            exInput.type = "text";
+            exInput.value = extraArr[idx] || "";
+            exInput.placeholder = "Ca " + (idx + 3) + "...";
+            exInput.addEventListener("change", function () {
+              rec.extra_shifts[idx] = exInput.value;
+            });
+
+            var delBtn = document.createElement("button");
+            delBtn.type = "button";
+            delBtn.textContent = "x";
+            delBtn.addEventListener("click", function () {
+              rec.extra_shifts.splice(idx, 1);
+              renderScheduleTable();
+            });
+
+            pill.appendChild(exInput);
+            pill.appendChild(delBtn);
+            extraListDiv.appendChild(pill);
+          })(j);
+        }
+
+        var addExtraBtn = document.createElement("button");
+        addExtraBtn.type = "button";
+        addExtraBtn.className = "btn-primary btn-sm";
+        addExtraBtn.textContent = "+ Them ca sau";
+        addExtraBtn.disabled = offToday;
+        addExtraBtn.addEventListener("click", function () {
+          if (!Array.isArray(rec.extra_shifts)) {
+            rec.extra_shifts = [];
+          }
+          rec.extra_shifts.push("");
+          renderScheduleTable();
+        });
+
+        extraTd.appendChild(extraListDiv);
+        extraTd.appendChild(addExtraBtn);
+        tr.appendChild(extraTd);
+
+        var offInfoTd = document.createElement("td");
+        if (offToday) {
+          var offBadge = document.createElement("span");
+          offBadge.className = "badge-off";
+          offBadge.textContent = "OFF CA NGAY";
+          offInfoTd.appendChild(offBadge);
+          offInfoTd.appendChild(document.createElement("br"));
+        }
+
+        var breakListDiv = document.createElement("div");
+        breakListDiv.className = "pill-list";
+        var breakArr = rec.break_off_slots || [];
+
+        for (var k = 0; k < breakArr.length; k++) {
+          (function (slotIdx) {
+            var bPill = document.createElement("div");
+            bPill.className = "pill";
+
+            var bSpan = document.createElement("span");
+            bSpan.textContent = "OFF " + breakArr[slotIdx];
+
+            var bDel = document.createElement("button");
+            bDel.type = "button";
+            bDel.textContent = "x";
+            bDel.addEventListener("click", function () {
+              rec.break_off_slots.splice(slotIdx, 1);
+              var p = (typeof window.upsertSingleRoster === "function")
+                ? window.upsertSingleRoster(rec)
+                : Promise.resolve();
+              p.then(renderScheduleTable);
+            });
+
+            bPill.appendChild(bSpan);
+            bPill.appendChild(bDel);
+            breakListDiv.appendChild(bPill);
+          })(k);
+        }
+        offInfoTd.appendChild(breakListDiv);
+        tr.appendChild(offInfoTd);
+
+        var actionTd = document.createElement("td");
+        var toggleOffBtn = document.createElement("button");
+        toggleOffBtn.type = "button";
+        toggleOffBtn.className = "btn-warning btn-sm";
+        toggleOffBtn.textContent = offToday ? "Mo lam lai" : "Cat ngay OFF";
+        toggleOffBtn.addEventListener("click", function () {
+          rec.is_day_off = !rec.is_day_off;
+          var p = (typeof window.upsertSingleRoster === "function")
+            ? window.upsertSingleRoster(rec)
+            : Promise.resolve();
+          p.then(renderScheduleTable);
+        });
+        actionTd.appendChild(toggleOffBtn);
+        tr.appendChild(actionTd);
+
+        tbody.appendChild(tr);
+      })(list[i]);
     }
-
-    tbody.innerHTML = rows;
   }
 
   var staffForm = document.getElementById("staffForm");
   if (staffForm) {
     staffForm.addEventListener("submit", function (e) {
       e.preventDefault();
-      var client = sb();
+      var client = getClient();
       if (!client) {
         alert("Chua ket noi Supabase");
         return;
       }
 
-      var employeeCode = document.getElementById("empCode").value.trim().toUpperCase();
-      var fullName = document.getElementById("fullName").value.trim();
-      var expYears = Number(document.getElementById("empLevel").value);
+      var empCodeEl = document.getElementById("empCode");
+      var fullNameEl = document.getElementById("fullName");
+      var empLevelEl = document.getElementById("empLevel");
+
+      var employeeCode = empCodeEl ? empCodeEl.value.trim().toUpperCase() : "";
+      var fullName = fullNameEl ? fullNameEl.value.trim() : "";
+      var expYears = empLevelEl ? Number(empLevelEl.value) : 0.5;
+
+      if (!employeeCode || !fullName) {
+        alert("Vui long nhap Ma NV va Ho ten");
+        return;
+      }
 
       client.from("profiles").insert({
         employee_code: employeeCode,
@@ -145,61 +282,16 @@
     });
   }
 
-  window.onEditMainShift = function (staffId, field, value) {
-    var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
-    var rec = window.getOrCreateRoster(staffId, date);
-    rec[field] = value;
-  };
-
-  window.onAddExtraShift = function (staffId) {
-    var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
-    var rec = window.getOrCreateRoster(staffId, date);
-    rec.extra_shifts.push("");
-    renderScheduleTable();
-  };
-
-  window.onEditExtraShift = function (staffId, idx, value) {
-    var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
-    var rec = window.getOrCreateRoster(staffId, date);
-    rec.extra_shifts[idx] = value;
-  };
-
-  window.onRemoveExtraShift = function (staffId, idx) {
-    var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
-    var rec = window.getOrCreateRoster(staffId, date);
-    rec.extra_shifts.splice(idx, 1);
-    renderScheduleTable();
-  };
-
-  window.onRemoveBreakSlot = function (staffId, idx) {
-    var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
-    var rec = window.getOrCreateRoster(staffId, date);
-    rec.break_off_slots.splice(idx, 1);
-    var p = (typeof window.upsertSingleRoster === "function")
-      ? window.upsertSingleRoster(rec)
-      : Promise.resolve();
-    p.then(renderScheduleTable);
-  };
-
-  window.onToggleDayOff = function (staffId) {
-    var date = (workDateEl && workDateEl.value) ? workDateEl.value : todayStr;
-    var rec = window.getOrCreateRoster(staffId, date);
-    rec.is_day_off = !rec.is_day_off;
-    var p = (typeof window.upsertSingleRoster === "function")
-      ? window.upsertSingleRoster(rec)
-      : Promise.resolve();
-    p.then(renderScheduleTable);
-  };
-
   var btnCutDayOff = document.getElementById("btnCutDayOff");
   if (btnCutDayOff) {
     btnCutDayOff.addEventListener("click", function () {
-      var client = sb();
+      var client = getClient();
       if (!client) {
         return;
       }
-      var staffId = document.getElementById("offStaffSelect").value;
-      var date = (offDateEl && offDateEl.value) || (workDateEl && workDateEl.value) || todayStr;
+      var selEl = document.getElementById("offStaffSelect");
+      var staffId = selEl ? selEl.value : "";
+      var date = getOffDate();
       if (!staffId) {
         return;
       }
@@ -228,14 +320,19 @@
   var btnCutTimeOff = document.getElementById("btnCutTimeOff");
   if (btnCutTimeOff) {
     btnCutTimeOff.addEventListener("click", function () {
-      var client = sb();
+      var client = getClient();
       if (!client) {
         return;
       }
-      var staffId = document.getElementById("offStaffSelect").value;
-      var date = (offDateEl && offDateEl.value) || (workDateEl && workDateEl.value) || todayStr;
-      var start = document.getElementById("offStart").value;
-      var end = document.getElementById("offEnd").value;
+      var selEl = document.getElementById("offStaffSelect");
+      var startEl = document.getElementById("offStart");
+      var endEl = document.getElementById("offEnd");
+
+      var staffId = selEl ? selEl.value : "";
+      var date = getOffDate();
+      var start = startEl ? startEl.value : "";
+      var end = endEl ? endEl.value : "";
+
       if (!staffId || !start || !end) {
         alert("Nhap du gio bat dau va ket thuc nghi trong ca");
         return;
@@ -246,6 +343,9 @@
       }
       window.loadDashboardData().then(function () {
         var rec = window.getOrCreateRoster(staffId, date);
+        if (!Array.isArray(rec.break_off_slots)) {
+          rec.break_off_slots = [];
+        }
         rec.break_off_slots.push(start + "-" + end);
         if (typeof window.upsertSingleRoster === "function") {
           return window.upsertSingleRoster(rec);
@@ -257,19 +357,24 @@
   var btnSaveAll = document.getElementById("btnSaveAllRosters");
   if (btnSaveAll) {
     btnSaveAll.addEventListener("click", function () {
-      var records = Object.values((window.rosterState && window.rosterState.rostersByStaff) || {});
+      var mapObj = (window.rosterState && window.rosterState.rostersByStaff) || {};
+      var records = Object.keys(mapObj).map(function (key) {
+        return mapObj[key];
+      });
       var chain = Promise.resolve();
+
       for (var i = 0; i < records.length; i++) {
-        (function (r) {
+        (function (recItem) {
           chain = chain.then(function () {
             if (typeof window.upsertSingleRoster === "function") {
-              return window.upsertSingleRoster(r);
+              return window.upsertSingleRoster(recItem);
             }
           });
         })(records[i]);
       }
+
       chain.then(function () {
-        alert("Da luu toan bo lich ngay " + ((workDateEl && workDateEl.value) || todayStr));
+        alert("Da luu toan bo lich ngay " + getSelectedDate());
       }).catch(function (err) {
         alert("Loi luu lich: " + err.message);
       });
