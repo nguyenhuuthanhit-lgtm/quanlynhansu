@@ -1,3 +1,4 @@
+cat << 'EOF' > app.js
 (function () {
   const todayStr = new Date().toISOString().slice(0, 10);
   const workDateEl = document.getElementById('workDate');
@@ -38,8 +39,10 @@
     if (!sel || !window.rosterState) return;
     sel.innerHTML = (window.rosterState.staffList || [])
       .map(function (s) {
-        const typeLabel = Number(s.experience_years) >= 3 ? 'Làm chính 3–5 năm' : 'Học việc';
-        return `<option value="${escapeHtml(s.id)}">${escapeHtml(s.employee_code)} - ${escapeHtml(s.full_name)} (${typeLabel})</option>`;
+        const typeLabel = Number(s.experience_years) >= 3 ? 'Lam chinh 3-5 nam' : 'Hoc viec';
+        return '<option value="' + escapeHtml(s.id) + '">' +
+          escapeHtml(s.employee_code) + ' - ' + escapeHtml(s.full_name) +
+          ' (' + typeLabel + ')</option>';
       })
       .join('');
   }
@@ -58,57 +61,41 @@
 
       const extraHtml = (rec.extra_shifts || [])
         .map(function (val, idx) {
-          return `
-            <div class="pill">
-              <input type="text" value="${escapeHtml(val)}" placeholder="Ca ${idx + 3}..."
-                onchange="window.onEditExtraShift('${escapeHtml(s.id)}', ${idx}, this.value)" />
-              <button type="button" onclick="window.onRemoveExtraShift('${escapeHtml(s.id)}', ${idx})">×</button>
-            </div>
-          `;
+          return '<div class="pill">' +
+            '<input type="text" value="' + escapeHtml(val) + '" placeholder="Ca ' + (idx + 3) + '..." ' +
+            'onchange="window.onEditExtraShift(\'' + escapeHtml(s.id) + '\', ' + idx + ', this.value)" />' +
+            '<button type="button" onclick="window.onRemoveExtraShift(\'' + escapeHtml(s.id) + '\', ' + idx + ')">x</button>' +
+            '</div>';
         })
         .join('');
 
       const breakHtml = (rec.break_off_slots || [])
         .map(function (slot, idx) {
-          return `
-            <div class="pill">
-              <span>OFF ${escapeHtml(slot)}</span>
-              <button type="button" onclick="window.onRemoveBreakSlot('${escapeHtml(s.id)}', ${idx})">×</button>
-            </div>
-          `;
+          return '<div class="pill">' +
+            '<span>OFF ' + escapeHtml(slot) + '</span>' +
+            '<button type="button" onclick="window.onRemoveBreakSlot(\'' + escapeHtml(s.id) + '\', ' + idx + ')">x</button>' +
+            '</div>';
         })
         .join('');
 
       const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><strong>${escapeHtml(s.employee_code)}</strong></td>
-        <td>${escapeHtml(s.full_name)}</td>
-        <td>${isCore
-          ? '<span class="badge-core">Làm chính (3–5 năm)</span>'
-          : '<span class="badge-intern">Học việc</span>'}</td>
-        <td>
-          <input type="text" value="${escapeHtml(rec.shift_1)}" ${isOff ? 'disabled' : ''}
-            placeholder="Vị trí Ca 1" onchange="window.onEditMainShift('${escapeHtml(s.id)}', 'shift_1', this.value)" />
-        </td>
-        <td>
-          <input type="text" value="${escapeHtml(rec.shift_2)}" ${isOff ? 'disabled' : ''}
-            placeholder="Vị trí Ca 2" onchange="window.onEditMainShift('${escapeHtml(s.id)}', 'shift_2', this.value)" />
-        </td>
-        <td>
-          <div class="pill-list">${extraHtml}</div>
-          <button type="button" class="btn-primary btn-sm" ${isOff ? 'disabled' : ''}
-            onclick="window.onAddExtraShift('${escapeHtml(s.id)}')">+ Thêm ca sau</button>
-        </td>
-        <td>
-          ${isOff ? '<span class="badge-off">OFF CẢ NGÀY</span><br>' : ''}
-          <div class="pill-list">${breakHtml}</div>
-        </td>
-        <td>
-          <button type="button" class="btn-warning btn-sm" onclick="window.onToggleDayOff('${escapeHtml(s.id)}')">
-            ${isOff ? 'Mở làm lại' : 'Cắt ngày OFF'}
-          </button>
-        </td>
-      `;
+      tr.innerHTML =
+        '<td><strong>' + escapeHtml(s.employee_code) + '</strong></td>' +
+        '<td>' + escapeHtml(s.full_name) + '</td>' +
+        '<td>' + (isCore
+          ? '<span class="badge-core">Lam chinh (3-5 nam)</span>'
+          : '<span class="badge-intern">Hoc viec</span>') + '</td>' +
+        '<td><input type="text" value="' + escapeHtml(rec.shift_1) + '" ' + (isOff ? 'disabled' : '') +
+          ' placeholder="Vi tri Ca 1" onchange="window.onEditMainShift(\'' + escapeHtml(s.id) + '\', \'shift_1\', this.value)" /></td>' +
+        '<td><input type="text" value="' + escapeHtml(rec.shift_2) + '" ' + (isOff ? 'disabled' : '') +
+          ' placeholder="Vi tri Ca 2" onchange="window.onEditMainShift(\'' + escapeHtml(s.id) + '\', \'shift_2\', this.value)" /></td>' +
+        '<td><div class="pill-list">' + extraHtml + '</div>' +
+          '<button type="button" class="btn-primary btn-sm" ' + (isOff ? 'disabled' : '') +
+          ' onclick="window.onAddExtraShift(\'' + escapeHtml(s.id) + '\')">+ Them ca sau</button></td>' +
+        '<td>' + (isOff ? '<span class="badge-off">OFF CA NGAY</span><br>' : '') +
+          '<div class="pill-list">' + breakHtml + '</div></td>' +
+        '<td><button type="button" class="btn-warning btn-sm" onclick="window.onToggleDayOff(\'' + escapeHtml(s.id) + '\')">' +
+          (isOff ? 'Mo lam lai' : 'Cat ngay OFF') + '</button></td>';
       tbody.appendChild(tr);
     });
   }
@@ -119,7 +106,7 @@
       e.preventDefault();
       const client = sb();
       if (!client) {
-        alert('Chưa kết nối được Supabase.');
+        alert('Chua ket noi duoc Supabase.');
         return;
       }
 
@@ -136,7 +123,7 @@
       });
 
       if (error) {
-        alert('Lỗi thêm nhân viên: ' + error.message);
+        alert('Loi them nhan vien: ' + error.message);
         return;
       }
 
@@ -203,7 +190,7 @@
       await client.from('leave_requests').insert({
         staff_id: staffId,
         leave_date: date,
-        reason: 'Ca trưởng cắt lịch OFF',
+        reason: 'Ca truong cat lich OFF',
         status: 'approved',
         approved_by: (window.currentUser && window.currentUser.id) || null
       });
@@ -230,14 +217,14 @@
       const end = document.getElementById('offEnd').value;
 
       if (!staffId || !start || !end) {
-        alert('Vui lòng nhập đủ giờ bắt đầu và kết thúc nghỉ trong ca.');
+        alert('Vui long nhap du gio bat dau va ket thuc nghi trong ca.');
         return;
       }
 
       if (workDateEl) workDateEl.value = date;
       await window.loadDashboardData();
       const rec = window.getOrCreateRoster(staffId, date);
-      rec.break_off_slots.push(`${start}-${end}`);
+      rec.break_off_slots.push(start + '-' + end);
       if (typeof window.upsertSingleRoster === 'function') {
         await window.upsertSingleRoster(rec);
       }
@@ -255,9 +242,9 @@
             await window.upsertSingleRoster(rec);
           }
         }
-        alert('Đã lưu toàn bộ lịch vị trí ngày ' + ((workDateEl && workDateEl.value) || todayStr) + ' lên Supabase!');
+        alert('Da luu toan bo lich vi tri ngay ' + ((workDateEl && workDateEl.value) || todayStr) + ' len Supabase!');
       } catch (err) {
-        alert('Lỗi khi lưu lịch: ' + err.message);
+        alert('Loi khi luu lich: ' + err.message);
       }
     });
   }
@@ -268,3 +255,4 @@
     });
   }
 })();
+EOF
