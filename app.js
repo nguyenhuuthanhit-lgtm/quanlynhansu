@@ -264,14 +264,15 @@
         alert("Vui long nhap Ma NV va Ho ten");
         return;
       }
-
-      client.from("profiles").insert({
+client.from("profiles").insert({
         employee_code: employeeCode,
         full_name: fullName,
         role: "staff",
+        shift_group: 1,
         experience_years: expYears,
         is_active: true
       }).then(function (res) {
+
         if (res.error) {
           alert("Loi them nhan vien: " + res.error.message);
           return;
