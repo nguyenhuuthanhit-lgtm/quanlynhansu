@@ -265,12 +265,12 @@
         return;
       }
 
-      client.from("profiles").insert({
+client.from("profiles").insert({
         employee_code: employeeCode,
         full_name: fullName,
         role: "staff",
         shift_group: 1,
-        base_shift_type: "DAY",
+        base_shift_type: "DEP",
         experience_years: expYears,
         is_active: true
       }).then(function (res) {
