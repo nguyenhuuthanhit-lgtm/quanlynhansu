@@ -1,229 +1,270 @@
-let staffList = [];
-let rosterMap = {};
-let leaveSet = new Set();
+(function () {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const workDateEl = document.getElementById('workDate');
+  const offDateEl = document.getElementById('offDate');
 
-const todayISO = new Date().toISOString().slice(0, 10);
+  if (workDateEl && !workDateEl.value) workDateEl.value = todayStr;
+  if (offDateEl && !offDateEl.value) offDateEl.value = todayStr;
 
-async function loadDashboardData() {
-  const workDate = document.getElementById('workDate').value || todayISO;
-
-  // 1. Lấy danh sách nhân sự từ bảng profiles
-  const { data: profiles, error: pErr } = await supabaseClient
-    .from('profiles')
-    .select('*')
-    .order('employee_code', { ascending: true });
-
-  if (pErr) {
-    alert('Lỗi tải danh sách nhân sự: ' + pErr.message);
-    return;
+  function sb() {
+    return window.supabaseClient;
   }
-  staffList = profiles || [];
 
-  // 2. Lấy phân ca trong ngày từ bảng daily_rosters
-  const { data: rosters } = await supabaseClient
-    .from('daily_rosters')
-    .select('*')
-    .eq('shift_date', workDate);
-
-  rosterMap = {};
-  (rosters || []).forEach(r => { rosterMap[r.staff_id] = r; });
-
-  // 3. Lấy danh sách ngày OFF từ bảng leave_requests
-  const { data: leaves } = await supabaseClient
-    .from('leave_requests')
-    .select('staff_id')
-    .eq('leave_date', workDate)
-    .eq('status', 'approved');
-
-  leaveSet = new Set((leaves || []).map(l => l.staff_id));
-
-  renderStaffDropdown();
-  renderRosterTable(workDate);
-}
-
-function renderStaffDropdown() {
-  const select = document.getElementById('offStaffSelect');
-  const currentVal = select.value;
-  select.innerHTML = staffList.map(s => {
-    const exp = Number(s.experience_years || 0);
-    const label = exp >= 3 ? `Làm chính (${exp} năm)` : 'Học việc';
-    return `<option value="${s.id}">${s.employee_code || ''} - ${s.full_name} [${label}]</option>`;
-  }).join('');
-  if (currentVal) select.value = currentVal;
-}
-
-function renderRosterTable(workDate) {
-  const tbody = document.getElementById('rosterBody');
-  const isLeader = currentProfile?.role === 'shift_leader';
-  const disabledAttr = isLeader ? '' : 'disabled';
-
-  tbody.innerHTML = staffList.map(s => {
-    const exp = Number(s.experience_years || 0);
-    const isCore = exp >= 3;
-    const isOff = leaveSet.has(s.id);
-    const r = rosterMap[s.id];
-    const shifts = SchedulerService.parseShifts(r);
-
-    const extraHtml = shifts.extra.map((val, idx) => `
-      <div class="extra-item">
-        <input type="text" value="${escapeHtml(val)}" placeholder="Ca ${idx + 3}..."
-          ${isOff || !isLeader ? 'disabled' : ''}
-          onchange="handleExtraChange('${workDate}', '${s.id}', ${idx}, this.value)" />
-        ${isLeader && !isOff ? `<button type="button" class="btn-danger btn-sm" onclick="handleRemoveExtra('${workDate}', '${s.id}', ${idx})">×</button>` : ''}
-      </div>
-    `).join('');
-
-    return `
-      <tr>
-        <td><strong>${escapeHtml(s.employee_code || '---')}</strong></td>
-        <td><strong>${escapeHtml(s.full_name)}</strong></td>
-        <td>
-          ${isCore
-            ? `<span class="tag tag-core">Làm chính (${exp} năm KN)</span>`
-            : `<span class="tag tag-intern">Học việc (${exp} năm)</span>`}
-        </td>
-        <td>
-          <input type="text" value="${escapeHtml(shifts.s1)}" placeholder="Nhập vị trí Ca 1"
-            ${isOff || !isLeader ? 'disabled' : ''}
-            onchange="handleMainShift('${workDate}', '${s.id}', 's1', this.value)" />
-        </td>
-        <td>
-          <input type="text" value="${escapeHtml(shifts.s2)}" placeholder="Nhập vị trí Ca 2"
-            ${isOff || !isLeader ? 'disabled' : ''}
-            onchange="handleMainShift('${workDate}', '${s.id}', 's2', this.value)" />
-        </td>
-        <td>
-          <div class="extra-list">${extraHtml}</div>
-          ${isLeader && !isOff ? `<button type="button" class="btn-primary btn-sm" onclick="handleAddExtra('${workDate}', '${s.id}')">+ Thêm ca sau</button>` : ''}
-        </td>
-        <td>
-          ${isOff ? '<div style="margin-bottom:4px;"><span class="tag tag-off">NGHỈ OFF CẢ NGÀY</span></div>' : ''}
-          ${r?.day_rest_slot ? `<div class="tag tag-intern">OFF Ca ngày: ${escapeHtml(r.day_rest_slot)}</div>` : ''}
-          ${r?.night_rest_slot ? `<div class="tag tag-intern" style="margin-top:3px;">OFF Ca đêm: ${escapeHtml(r.night_rest_slot)}</div>` : ''}
-        </td>
-        <td>
-          ${isLeader ? `
-            <button type="button" class="btn-warning btn-sm" onclick="handleToggleDayOff('${workDate}', '${s.id}', ${!isOff})">
-              ${isOff ? 'Hủy OFF ngày' : 'Cắt OFF ngày'}
-            </button>
-          ` : '---'}
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function escapeHtml(str) {
-  return String(str || '').replace(/[&<>"']/g, m => ({
-    '&': '&', '<': '<', '>': '>', '"': '"', "'": '''
-  }[m]));
-}
-
-// --- CÁC HÀM XỬ LÝ SỰ KIỆN CỦA CA TRƯỞNG ---
-async function handleMainShift(date, staffId, field, value) {
-  await SchedulerService.saveRoster(date, staffId, { [field]: value });
-  await loadDashboardData();
-}
-
-async function handleAddExtra(date, staffId) {
-  const shifts = SchedulerService.parseShifts(rosterMap[staffId]);
-  shifts.extra.push('');
-  await SchedulerService.saveRoster(date, staffId, { extra: shifts.extra });
-  await loadDashboardData();
-}
-
-async function handleExtraChange(date, staffId, idx, value) {
-  const shifts = SchedulerService.parseShifts(rosterMap[staffId]);
-  shifts.extra[idx] = value;
-  await SchedulerService.saveRoster(date, staffId, { extra: shifts.extra });
-  await loadDashboardData();
-}
-
-async function handleRemoveExtra(date, staffId, idx) {
-  const shifts = SchedulerService.parseShifts(rosterMap[staffId]);
-  shifts.extra.splice(idx, 1);
-  await SchedulerService.saveRoster(date, staffId, { extra: shifts.extra });
-  await loadDashboardData();
-}
-
-async function handleToggleDayOff(date, staffId, targetState) {
-  await SchedulerService.setDayOff(date, staffId, targetState);
-  await loadDashboardData();
-}
-
-// Khởi tạo sự kiện DOM
-document.addEventListener('DOMContentLoaded', async () => {
-  document.getElementById('workDate').value = todayISO;
-  document.getElementById('offDate').value = todayISO;
-
-  // Tự động gợi ý số năm kinh nghiệm khi chọn Học việc / Làm chính
-  document.getElementById('empType').addEventListener('change', (e) => {
-    document.getElementById('expYears').value = e.target.value === 'lam_chinh' ? 3 : 0;
-  });
-
-  // Form thêm nhân viên ban đầu
-  document.getElementById('staffForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const employee_code = document.getElementById('empCode').value.trim();
-    const full_name = document.getElementById('fullName').value.trim();
-    const experience_years = parseFloat(document.getElementById('expYears').value || 0);
-
-    const { error } = await supabaseClient.from('profiles').insert({
-      employee_code,
-      full_name,
-      role: 'staff',
-      experience_years,
-      is_active: true
+  function escapeHtml(str) {
+    return String(str || '').replace(/[&<>"']/g, function (m) {
+      return {
+        '&': '&',
+        '<': '<',
+        '>': '>',
+        '"': '"',
+        "'": '''
+      }[m];
     });
+  }
 
-    if (error) {
-      alert('Lỗi thêm nhân viên: ' + error.message);
-      return;
+  window.loadDashboardData = async function () {
+    const client = sb();
+    if (!client) return;
+    const date = (workDateEl && workDateEl.value) || todayStr;
+    if (typeof window.fetchDailySchedule === 'function') {
+      await window.fetchDailySchedule(date);
     }
-    e.target.reset();
-    await loadDashboardData();
-  });
+    renderStaffDropdown();
+    renderScheduleTable();
+  };
 
-  // Nút cắt ngày OFF
-  document.getElementById('btnCutDayOff').addEventListener('click', async () => {
-    const staffId = document.getElementById('offStaffSelect').value;
-    const date = document.getElementById('offDate').value || todayISO;
-    if (!staffId) return;
-    await SchedulerService.setDayOff(date, staffId, true);
-    document.getElementById('workDate').value = date;
-    await loadDashboardData();
-  });
+  function renderStaffDropdown() {
+    const sel = document.getElementById('offStaffSelect');
+    if (!sel || !window.rosterState) return;
+    sel.innerHTML = (window.rosterState.staffList || [])
+      .map(function (s) {
+        const typeLabel = Number(s.experience_years) >= 3 ? 'Làm chính 3–5 năm' : 'Học việc';
+        return `<option value="${escapeHtml(s.id)}">${escapeHtml(s.employee_code)} - ${escapeHtml(s.full_name)} (${typeLabel})</option>`;
+      })
+      .join('');
+  }
 
-  // Nút cắt thời gian OFF trong ca làm
-  document.getElementById('btnCutTimeOff').addEventListener('click', async () => {
-    const staffId = document.getElementById('offStaffSelect').value;
-    const date = document.getElementById('offDate').value || todayISO;
-    const day_rest_slot = document.getElementById('dayRestSlot').value.trim() || null;
-    const night_rest_slot = document.getElementById('nightRestSlot').value.trim() || null;
-    if (!staffId) return;
+  function renderScheduleTable() {
+    const tbody = document.getElementById('scheduleBody');
+    if (!tbody || !window.rosterState) return;
+    const date = (workDateEl && workDateEl.value) || todayStr;
+    tbody.innerHTML = '';
 
-    await SchedulerService.saveRoster(date, staffId, { day_rest_slot, night_rest_slot });
-    document.getElementById('workDate').value = date;
-    await loadDashboardData();
-  });
+    (window.rosterState.staffList || []).forEach(function (s) {
+      const rec = window.getOrCreateRoster(s.id, date);
+      const hasLeaveReq = !!(window.rosterState.leavesByStaff && window.rosterState.leavesByStaff[s.id]);
+      const isOff = !!(rec.is_day_off || hasLeaveReq);
+      const isCore = Number(s.experience_years) >= 3;
 
-  document.getElementById('workDate').addEventListener('change', loadDashboardData);
+      const extraHtml = (rec.extra_shifts || [])
+        .map(function (val, idx) {
+          return `
+            <div class="pill">
+              <input type="text" value="${escapeHtml(val)}" placeholder="Ca ${idx + 3}..."
+                onchange="window.onEditExtraShift('${escapeHtml(s.id)}', ${idx}, this.value)" />
+              <button type="button" onclick="window.onRemoveExtraShift('${escapeHtml(s.id)}', ${idx})">×</button>
+            </div>
+          `;
+        })
+        .join('');
 
-  document.getElementById('loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    try {
-      await loginWithEmail(
-        document.getElementById('loginEmail').value,
-        document.getElementById('loginPassword').value
-      );
-      await loadDashboardData();
-    } catch (err) {
-      alert('Đăng nhập thất bại: ' + err.message);
+      const breakHtml = (rec.break_off_slots || [])
+        .map(function (slot, idx) {
+          return `
+            <div class="pill">
+              <span>OFF ${escapeHtml(slot)}</span>
+              <button type="button" onclick="window.onRemoveBreakSlot('${escapeHtml(s.id)}', ${idx})">×</button>
+            </div>
+          `;
+        })
+        .join('');
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(s.employee_code)}</strong></td>
+        <td>${escapeHtml(s.full_name)}</td>
+        <td>${isCore
+          ? '<span class="badge-core">Làm chính (3–5 năm)</span>'
+          : '<span class="badge-intern">Học việc</span>'}</td>
+        <td>
+          <input type="text" value="${escapeHtml(rec.shift_1)}" ${isOff ? 'disabled' : ''}
+            placeholder="Vị trí Ca 1" onchange="window.onEditMainShift('${escapeHtml(s.id)}', 'shift_1', this.value)" />
+        </td>
+        <td>
+          <input type="text" value="${escapeHtml(rec.shift_2)}" ${isOff ? 'disabled' : ''}
+            placeholder="Vị trí Ca 2" onchange="window.onEditMainShift('${escapeHtml(s.id)}', 'shift_2', this.value)" />
+        </td>
+        <td>
+          <div class="pill-list">${extraHtml}</div>
+          <button type="button" class="btn-primary btn-sm" ${isOff ? 'disabled' : ''}
+            onclick="window.onAddExtraShift('${escapeHtml(s.id)}')">+ Thêm ca sau</button>
+        </td>
+        <td>
+          ${isOff ? '<span class="badge-off">OFF CẢ NGÀY</span><br>' : ''}
+          <div class="pill-list">${breakHtml}</div>
+        </td>
+        <td>
+          <button type="button" class="btn-warning btn-sm" onclick="window.onToggleDayOff('${escapeHtml(s.id)}')">
+            ${isOff ? 'Mở làm lại' : 'Cắt ngày OFF'}
+          </button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  const staffForm = document.getElementById('staffForm');
+  if (staffForm) {
+    staffForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const client = sb();
+      if (!client) {
+        alert('Chưa kết nối được Supabase.');
+        return;
+      }
+
+      const employee_code = document.getElementById('empCode').value.trim().toUpperCase();
+      const full_name = document.getElementById('fullName').value.trim();
+      const experience_years = Number(document.getElementById('empLevel').value);
+
+      const { error } = await client.from('profiles').insert({
+        employee_code: employee_code,
+        full_name: full_name,
+        role: 'staff',
+        experience_years: experience_years,
+        is_active: true
+      });
+
+      if (error) {
+        alert('Lỗi thêm nhân viên: ' + error.message);
+        return;
+      }
+
+      staffForm.reset();
+      await window.loadDashboardData();
+    });
+  }
+
+  window.onEditMainShift = function (staffId, field, value) {
+    const date = (workDateEl && workDateEl.value) || todayStr;
+    const rec = window.getOrCreateRoster(staffId, date);
+    rec[field] = value;
+  };
+
+  window.onAddExtraShift = function (staffId) {
+    const date = (workDateEl && workDateEl.value) || todayStr;
+    const rec = window.getOrCreateRoster(staffId, date);
+    rec.extra_shifts.push('');
+    renderScheduleTable();
+  };
+
+  window.onEditExtraShift = function (staffId, idx, value) {
+    const date = (workDateEl && workDateEl.value) || todayStr;
+    const rec = window.getOrCreateRoster(staffId, date);
+    rec.extra_shifts[idx] = value;
+  };
+
+  window.onRemoveExtraShift = function (staffId, idx) {
+    const date = (workDateEl && workDateEl.value) || todayStr;
+    const rec = window.getOrCreateRoster(staffId, date);
+    rec.extra_shifts.splice(idx, 1);
+    renderScheduleTable();
+  };
+
+  window.onRemoveBreakSlot = async function (staffId, idx) {
+    const date = (workDateEl && workDateEl.value) || todayStr;
+    const rec = window.getOrCreateRoster(staffId, date);
+    rec.break_off_slots.splice(idx, 1);
+    if (typeof window.upsertSingleRoster === 'function') {
+      await window.upsertSingleRoster(rec);
     }
-  });
+    renderScheduleTable();
+  };
 
-  document.getElementById('btnLogout').addEventListener('click', logoutUser);
+  window.onToggleDayOff = async function (staffId) {
+    const date = (workDateEl && workDateEl.value) || todayStr;
+    const rec = window.getOrCreateRoster(staffId, date);
+    rec.is_day_off = !rec.is_day_off;
+    if (typeof window.upsertSingleRoster === 'function') {
+      await window.upsertSingleRoster(rec);
+    }
+    renderScheduleTable();
+  };
 
-  const profile = await checkSession();
-  if (profile) await loadDashboardData();
-});
+  const btnCutDayOff = document.getElementById('btnCutDayOff');
+  if (btnCutDayOff) {
+    btnCutDayOff.addEventListener('click', async function () {
+      const client = sb();
+      if (!client) return;
+      const staffId = document.getElementById('offStaffSelect').value;
+      const date = (offDateEl && offDateEl.value) || (workDateEl && workDateEl.value) || todayStr;
+      if (!staffId) return;
+
+      await client.from('leave_requests').insert({
+        staff_id: staffId,
+        leave_date: date,
+        reason: 'Ca trưởng cắt lịch OFF',
+        status: 'approved',
+        approved_by: (window.currentUser && window.currentUser.id) || null
+      });
+
+      if (workDateEl) workDateEl.value = date;
+      await window.loadDashboardData();
+      const rec = window.getOrCreateRoster(staffId, date);
+      rec.is_day_off = true;
+      if (typeof window.upsertSingleRoster === 'function') {
+        await window.upsertSingleRoster(rec);
+      }
+      renderScheduleTable();
+    });
+  }
+
+  const btnCutTimeOff = document.getElementById('btnCutTimeOff');
+  if (btnCutTimeOff) {
+    btnCutTimeOff.addEventListener('click', async function () {
+      const client = sb();
+      if (!client) return;
+      const staffId = document.getElementById('offStaffSelect').value;
+      const date = (offDateEl && offDateEl.value) || (workDateEl && workDateEl.value) || todayStr;
+      const start = document.getElementById('offStart').value;
+      const end = document.getElementById('offEnd').value;
+
+      if (!staffId || !start || !end) {
+        alert('Vui lòng nhập đủ giờ bắt đầu và kết thúc nghỉ trong ca.');
+        return;
+      }
+
+      if (workDateEl) workDateEl.value = date;
+      await window.loadDashboardData();
+      const rec = window.getOrCreateRoster(staffId, date);
+      rec.break_off_slots.push(`${start}-${end}`);
+      if (typeof window.upsertSingleRoster === 'function') {
+        await window.upsertSingleRoster(rec);
+      }
+      renderScheduleTable();
+    });
+  }
+
+  const btnSaveAll = document.getElementById('btnSaveAllRosters');
+  if (btnSaveAll) {
+    btnSaveAll.addEventListener('click', async function () {
+      try {
+        const records = Object.values((window.rosterState && window.rosterState.rostersByStaff) || {});
+        for (const rec of records) {
+          if (typeof window.upsertSingleRoster === 'function') {
+            await window.upsertSingleRoster(rec);
+          }
+        }
+        alert('Đã lưu toàn bộ lịch vị trí ngày ' + ((workDateEl && workDateEl.value) || todayStr) + ' lên Supabase!');
+      } catch (err) {
+        alert('Lỗi khi lưu lịch: ' + err.message);
+      }
+    });
+  }
+
+  if (workDateEl) {
+    workDateEl.addEventListener('change', function () {
+      window.loadDashboardData();
+    });
+  }
+})();
