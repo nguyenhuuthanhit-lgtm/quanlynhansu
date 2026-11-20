@@ -4,7 +4,8 @@
     rostersByStaff: {},
     leavesByStaff: {},
     monthRosters: [],
-    monthLeaves: []
+    monthLeaves: [],
+    monthShiftDirs: {}
   };
 
   window.getOrCreateRoster = function (staffId, shiftDate) {
@@ -67,6 +68,13 @@
     var startDate = yearMonth + "-01";
     var lastDay = new Date(y, m, 0).getDate();
     var endDate = yearMonth + "-" + String(lastDay).padStart(2, "0");
+
+    try {
+      var savedMap = JSON.parse(localStorage.getItem("monthShiftDirs_" + yearMonth) || "{}");
+      window.rosterState.monthShiftDirs = savedMap || {};
+    } catch (e) {
+      window.rosterState.monthShiftDirs = {};
+    }
 
     return Promise.all([
       client.from("profiles").select("*").eq("is_active", true).order("employee_code"),
