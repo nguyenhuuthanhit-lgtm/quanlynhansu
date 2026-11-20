@@ -5,18 +5,15 @@
   var Core = global.AppCore;
 
   function loadDashboardData() {
-    if (!Core.getClient()) return Promise.resolve();
+    if (!Core || !Core.getClient()) return Promise.resolve();
     var date = Core.getSelectedDate();
     var task = (typeof global.fetchDailySchedule === "function")
       ? global.fetchDailySchedule(date)
       : Promise.resolve();
 
-    return task.then(function () {
+    return Promise.resolve(task).then(function () {
       if (global.AppDayRest && global.AppDayRest.syncSlotsToRosters) {
         global.AppDayRest.syncSlotsToRosters(date);
-      }
-      if (global.AppStatsRole && global.AppStatsRole.renderPanelStats) {
-        global.AppStatsRole.renderPanelStats();
       }
       if (global.AppStaffCrud && global.AppStaffCrud.renderMyPersonalCard) {
         global.AppStaffCrud.renderMyPersonalCard();
@@ -30,22 +27,31 @@
       if (global.AppDayRest && global.AppDayRest.renderDaySchedule) {
         global.AppDayRest.renderDaySchedule();
       }
+      if (global.AppStatsRole && global.AppStatsRole.refreshStatsWithFallback) {
+        return global.AppStatsRole.refreshStatsWithFallback();
+      }
+      if (global.AppStatsRole && global.AppStatsRole.renderPanelStats) {
+        global.AppStatsRole.renderPanelStats();
+      }
     });
   }
 
   function loadMonthTab() {
-    if (!Core.getClient()) return Promise.resolve();
+    if (!Core || !Core.getClient()) return Promise.resolve();
     var ym = Core.getSelectedMonth();
     var task = (typeof global.fetchMonthlySchedule === "function")
       ? global.fetchMonthlySchedule(ym)
       : Promise.resolve();
 
-    return task.then(function () {
-      if (global.AppStatsRole && global.AppStatsRole.renderPanelStats) {
-        global.AppStatsRole.renderPanelStats();
-      }
+    return Promise.resolve(task).then(function () {
       if (global.AppMonthSchedule && global.AppMonthSchedule.renderMonthSchedule) {
         global.AppMonthSchedule.renderMonthSchedule();
+      }
+      if (global.AppStatsRole && global.AppStatsRole.refreshStatsWithFallback) {
+        return global.AppStatsRole.refreshStatsWithFallback();
+      }
+      if (global.AppStatsRole && global.AppStatsRole.renderPanelStats) {
+        global.AppStatsRole.renderPanelStats();
       }
     });
   }
@@ -71,7 +77,7 @@
     })(tabButtons[t]);
   }
 
-  if (Core.workDateEl) {
+  if (Core && Core.workDateEl) {
     Core.workDateEl.addEventListener("change", function () {
       loadDashboardData();
     });
@@ -79,7 +85,7 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     setTimeout(function () {
-      var client = Core.getClient();
+      var client = Core ? Core.getClient() : null;
       var savedId = sessionStorage.getItem("loggedInStaffId");
       if (client && savedId && global.AppAuth) {
         client
