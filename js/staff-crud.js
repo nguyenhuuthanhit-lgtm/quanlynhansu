@@ -1,6 +1,3 @@
-// =========================================================================
-// [COMPONENT: js/staff-crud.js] QUẢN LÝ NHÂN SỰ & THÔNG TIN CÁ NHÂN
-// =========================================================================
 (function (global) {
   var Core = global.AppCore;
 
@@ -112,23 +109,20 @@
           if (res.error) {
             return alert("Lỗi cập nhật nhân viên: " + res.error.message);
           }
+          if (!res.data || res.data.length === 0) {
+            return alert("Không cập nhật được bản ghi (kiểm tra quyền RLS hoặc ID nhân viên).");
+          }
+          var updatedRow = res.data[0];
           if (global.rosterState && Array.isArray(global.rosterState.staffList)) {
             for (var i = 0; i < global.rosterState.staffList.length; i++) {
               if (String(global.rosterState.staffList[i].id) === id) {
-                global.rosterState.staffList[i] = Object.assign({}, global.rosterState.staffList[i], {
-                  employee_code: code,
-                  full_name: name,
-                  job_title: jobTitle,
-                  experience_years: Core.expFromJobTitle(jobTitle),
-                  shift_group: groupInt,
-                  role: role
-                });
+                global.rosterState.staffList[i] = Object.assign({}, global.rosterState.staffList[i], updatedRow);
               }
             }
           }
           if (editModal) editModal.classList.remove("open");
           renderStaffList();
-          if (global.AppTabs && global.AppTabs.loadDashboardData) global.AppTabs.loadDashboardData();
+          alert("Đã cập nhật thông tin nhân viên thành công.");
         });
     });
   }
