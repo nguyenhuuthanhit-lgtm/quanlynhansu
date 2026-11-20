@@ -1,6 +1,5 @@
 // =========================================================================
-// [FILE: js/teams.js] QUẢN LÝ TỔ / NHÓM CA
-// Phụ trách thêm, sửa, xóa tổ và hiển thị đúng tên tổ ở danh sách nhân sự.
+// [FILE: js/teams.js] QUẢN LÝ TỔ / NHÓM CA (HỖ TRỢ CẢ ID KIỂU UUID & SỐ)
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
@@ -72,7 +71,7 @@
       sel.innerHTML = "";
       for (var i = 0; i < teamsList.length; i++) {
         var opt = document.createElement("option");
-        opt.value = String(Core.parsePositiveInt(teamsList[i].id, i + 1));
+        opt.value = String(teamsList[i].id);
         opt.textContent = teamsList[i].name + (teamsList[i].note ? " (" + teamsList[i].note + ")" : "");
         sel.appendChild(opt);
       }
@@ -134,8 +133,8 @@
             saveTeamsLocal(teamsList);
             renderTeamSelectors();
             renderTeamManageList();
-            if (global.AppStaff && typeof global.AppStaff.renderStaffList === "function") {
-              global.AppStaff.renderStaffList();
+            if (global.AppStaffCrud && typeof global.AppStaffCrud.renderStaffList === "function") {
+              global.AppStaffCrud.renderStaffList();
             }
           };
 
@@ -194,10 +193,7 @@
             }
           });
       } else {
-        var maxId = teamsList.reduce(function (m, item) {
-          return Math.max(m, Core.parsePositiveInt(item.id, 0));
-        }, 0);
-        teamsList.push({ id: maxId + 1, name: name, note: note });
+        teamsList.push({ id: "team_" + Date.now(), name: name, note: note });
         saveTeamsLocal(teamsList);
         addTeamForm.reset();
         renderTeamSelectors();
@@ -215,7 +211,7 @@
   }
 
   function openEditTeamModal(team) {
-    document.getElementById("editTeamId").value = team.id;
+    document.getElementById("editTeamId").value = String(team.id || "");
     document.getElementById("editTeamName").value = team.name || "";
     document.getElementById("editTeamNote").value = team.note || "";
     if (editTeamModal) editTeamModal.classList.add("open");
@@ -225,14 +221,14 @@
   if (editTeamForm) {
     editTeamForm.addEventListener("submit", function (e) {
       e.preventDefault();
-      var id = Core.parsePositiveInt(document.getElementById("editTeamId").value, 1);
+      var id = String(document.getElementById("editTeamId").value || "").trim();
       var name = document.getElementById("editTeamName").value.trim();
       var note = document.getElementById("editTeamNote").value.trim();
-      if (!name) return;
+      if (!id || !name) return;
 
       var applyLocalUpdate = function () {
         for (var i = 0; i < teamsList.length; i++) {
-          if (Number(teamsList[i].id) === id) {
+          if (String(teamsList[i].id) === id) {
             teamsList[i].name = name;
             teamsList[i].note = note;
           }
@@ -241,8 +237,8 @@
         if (editTeamModal) editTeamModal.classList.remove("open");
         renderTeamSelectors();
         renderTeamManageList();
-        if (global.AppStaff && typeof global.AppStaff.renderStaffList === "function") {
-          global.AppStaff.renderStaffList();
+        if (global.AppStaffCrud && typeof global.AppStaffCrud.renderStaffList === "function") {
+          global.AppStaffCrud.renderStaffList();
         }
       };
 
