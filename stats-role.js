@@ -1,27 +1,26 @@
 // =========================================================================
 // [COMPONENT: js/stats-role.js] THỐNG KÊ TỔNG QUAN & PHÂN QUYỀN VAI TRÒ
+// Tính: Tổng số NV, NV học viện, NV chính thức, Đi làm trong ngày, OFF trong ngày.
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
 
   function getStaffArray() {
     var rs = global.rosterState;
-    if (rs && Array.isArray(rs.staffList)) return rs.staffList;
-    if (Array.isArray(global.staffList)) return global.staffList;
-    if (Array.isArray(global.allStaff)) return global.allStaff;
-    return [];
+    if (rs && Array.isArray(rs.staffList) && rs.staffList.length > 0) return rs.staffList;
+    if (rs && Array.isArray(rs.staffs) && rs.staffs.length > 0) return rs.staffs;
+    if (Array.isArray(global.staffList) && global.staffList.length > 0) return global.staffList;
+    return (rs && Array.isArray(rs.staffList)) ? rs.staffList : [];
   }
 
   function isOffDay(staffId, rec, dateStr) {
     var rs = global.rosterState || {};
     var leaves = rs.leavesByStaff || {};
 
-    // Kiểm tra leavesByStaff theo staffId hoặc theo key staffId_dateStr
     if (leaves[staffId] || (dateStr && leaves[staffId + "_" + dateStr])) {
       return true;
     }
 
-    // Kiểm tra trong mảng leaves nếu có
     if (Array.isArray(rs.leaves)) {
       for (var i = 0; i < rs.leaves.length; i++) {
         var lv = rs.leaves[i];
@@ -68,7 +67,7 @@
     var officialCount = 0; // Nhân viên chính thức
     var traineeCount = 0;  // Nhân viên học viện
     var offTodayCount = 0;
-    var date = Core ? Core.getSelectedDate() : "";
+    var date = Core && typeof Core.getSelectedDate === "function" ? Core.getSelectedDate() : "";
 
     for (var i = 0; i < allStaff.length; i++) {
       var s = allStaff[i];
@@ -101,6 +100,64 @@
     if (elOld) elOld.textContent = String(officialCount);
     if (elWork) elWork.textContent = String(workTodayCount);
     if (elOff) elOff.textContent = String(offTodayCount);
+  }
+
+  // Tải trực tiếp từ Supabase nếu rosterState.staffList đang rỗng để đảm bảo thống kê không bị 0
+  function refreshStatsWithFallback() {
+    renderPanelStats();
+    var currentList = getStaffArray();
+    if (currentList.length > 0 || !Core || typeof Core.getClient !== "function") {
+      return Promise.resolve();
+    }
+
+    var client = Core.getClient();
+    if (!client) return Promise.resolve();
+
+    var date = Core.getSelectedDate();
+    if (!global.rosterState) {
+      global.rosterState = {
+        staffList: [],
+        rostersByStaff: {},
+        leavesByStaff: {},
+        monthRosters: [],
+        monthLeaves: [],
+        monthShiftDirs: {}
+      };
+    }
+
+    return Promise.all([
+      client.from("profiles").select("*").eq("is_active", true).order("employee_code", { ascending: true }),
+      client.from("daily_rosters").select("*").eq("shift_date", date),
+      client.from("leave_requests").select("*").eq("leave_date", date).neq("status", "rejected")
+    ]).then(function (results) {
+      var profRes = results[0];
+      var rostRes = results[1];
+      var leaveRes = results[2];
+
+      if (!profRes.error && Array.isArray(profRes.data) && profRes.data.length > 0) {
+        global.rosterState.staffList = profRes.data;
+      }
+
+      if (!rostRes.error && Array.isArray(rostRes.data)) {
+        global.rosterState.rostersByStaff = global.rosterState.rostersByStaff || {};
+        for (var i = 0; i < rostRes.data.length; i++) {
+          var r = rostRes.data[i];
+          global.rosterState.rostersByStaff[r.staff_id] = r;
+        }
+      }
+
+      if (!leaveRes.error && Array.isArray(leaveRes.data)) {
+        global.rosterState.leavesByStaff = global.rosterState.leavesByStaff || {};
+        for (var j = 0; j < leaveRes.data.length; j++) {
+          var lv = leaveRes.data[j];
+          global.rosterState.leavesByStaff[lv.staff_id] = lv;
+        }
+      }
+
+      renderPanelStats();
+    }).catch(function () {
+      renderPanelStats();
+    });
   }
 
   function applyRoleLabelsAndVisibility() {
@@ -141,6 +198,7 @@
 
   global.AppStatsRole = {
     renderPanelStats: renderPanelStats,
+    refreshStatsWithFallback: refreshStatsWithFallback,
     applyRoleLabelsAndVisibility: applyRoleLabelsAndVisibility
   };
 })(window);
