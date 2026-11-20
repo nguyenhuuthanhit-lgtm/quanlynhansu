@@ -9,12 +9,8 @@
   if (workDateEl && !workDateEl.value) workDateEl.value = todayStr;
   if (workMonthEl && !workMonthEl.value) workMonthEl.value = monthStr;
 
-  var DEFAULT_TEAMS = [
-    { id: 1, name: "Tổ 1", note: "" },
-    { id: 2, name: "Tổ 2", note: "" }
-  ];
-
   var teamsList = [];
+  var daySlotsByDate = {};
 
   function initClient() {
     if (window.supabaseClient) return window.supabaseClient;
@@ -71,18 +67,19 @@
     });
   }
 
+  // Quản lý danh sách Tổ / Nhóm (hiển thị đúng tên tổ)
   function saveTeamsLocal(list) {
     try {
-      localStorage.setItem("airport_teams_v2", JSON.stringify(list));
+      localStorage.setItem("airport_teams_v3", JSON.stringify(list));
     } catch (e) {}
   }
 
   function readTeamsLocal() {
     try {
-      var raw = JSON.parse(localStorage.getItem("airport_teams_v2") || "null");
-      if (Array.isArray(raw) && raw.length > 0) return raw;
+      var raw = JSON.parse(localStorage.getItem("airport_teams_v3") || "null");
+      if (Array.isArray(raw)) return raw;
     } catch (e) {}
-    return DEFAULT_TEAMS.slice();
+    return [];
   }
 
   function loadTeams() {
@@ -102,12 +99,8 @@
       .order("id", { ascending: true })
       .then(function (res) {
         if (!res.error && Array.isArray(res.data)) {
-          if (res.data.length > 0) {
-            teamsList = res.data;
-            saveTeamsLocal(teamsList);
-          } else {
-            teamsList = localList;
-          }
+          teamsList = res.data.length > 0 ? res.data : localList;
+          if (res.data.length > 0) saveTeamsLocal(teamsList);
         } else {
           teamsList = localList;
         }
@@ -124,13 +117,12 @@
   }
 
   function getTeamNameById(groupId) {
-    var numId = parsePositiveInt(groupId, 1);
     for (var i = 0; i < teamsList.length; i++) {
-      if (Number(teamsList[i].id) === numId) {
-        return teamsList[i].name;
+      if (String(teamsList[i].id) === String(groupId)) {
+        return teamsList[i].name || "Chưa đặt tên tổ";
       }
     }
-    return "Tổ " + numId;
+    return "Chưa phân tổ";
   }
 
   function renderTeamSelectors() {
@@ -165,13 +157,18 @@
     if (!container) return;
     container.innerHTML = "";
 
+    if (!teamsList.length) {
+      container.innerHTML = "<div class='small-muted'>Chưa có tổ / nhóm nào. Hãy thêm tổ mới ở trên.</div>";
+      return;
+    }
+
     for (var i = 0; i < teamsList.length; i++) {
       (function (t) {
         var row = document.createElement("div");
         row.className = "team-item";
 
         var info = document.createElement("div");
-        info.innerHTML = "<strong>" + (t.name || ("Tổ " + t.id)) + "</strong>" +
+        info.innerHTML = "<strong>" + (t.name || "Chưa đặt tên tổ") + "</strong>" +
           (t.note ? " <span class='small-muted'>- " + t.note + "</span>" : "");
 
         var btns = document.createElement("div");
@@ -190,15 +187,11 @@
         btnDel.className = "btn-danger btn-sm";
         btnDel.textContent = "Xóa";
         btnDel.addEventListener("click", function () {
-          if (teamsList.length <= 1) {
-            alert("Cần giữ lại ít nhất 1 tổ / nhóm.");
-            return;
-          }
           if (!confirm("Xóa " + (t.name || "tổ này") + "?")) return;
 
           var applyRemove = function () {
             teamsList = teamsList.filter(function (item) {
-              return Number(item.id) !== Number(t.id);
+              return String(item.id) !== String(t.id);
             });
             saveTeamsLocal(teamsList);
             renderTeamSelectors();
@@ -263,7 +256,7 @@
       } else {
         var maxId = teamsList.reduce(function (m, item) {
           return Math.max(m, parsePositiveInt(item.id, 0));
-        }, 2);
+        }, 0);
         teamsList.push({ id: maxId + 1, name: name, note: note });
         saveTeamsLocal(teamsList);
         addTeamForm.reset();
@@ -324,6 +317,96 @@
         applyLocalUpdate();
       }
     });
+  }
+
+  // Quản lý Vị trí làm việc + Khoảng thời gian làm trong ngày
+  function getDaySlots(dateStr) {
+    if (!daySlotsByDate[dateStr]) {
+      try {
+        var raw = JSON.parse(localStorage.getItem("dayPositionSlots_" + dateStr) || "null");
+        daySlotsByDate[dateStr] = Array.isArray(raw) ? raw : [];
+      } catch (e) {
+        daySlotsByDate[dateStr] = [];
+      }
+    }
+    return daySlotsByDate[dateStr];
+  }
+
+  function saveDaySlots(dateStr) {
+    var slots = getDaySlots(dateStr);
+    try {
+      localStorage.setItem("dayPositionSlots_" + dateStr, JSON.stringify(slots));
+    } catch (e) {}
+    syncSlotsToRosters(dateStr);
+  }
+
+  function timeToMinutes(hhmm) {
+    if (!hhmm || hhmm.indexOf(":") === -1) return null;
+    var parts = hhmm.split(":");
+    var h = Number(parts[0]);
+    var m = Number(parts[1]);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+  }
+
+  function minutesToTime(mins) {
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  }
+
+  function getStaffWorkSlots(staffId, dateStr) {
+    var slots = getDaySlots(dateStr);
+    var matched = [];
+    for (var i = 0; i < slots.length; i++) {
+      var s = slots[i];
+      var list = s.staffIds || [];
+      if (list.indexOf(staffId) !== -1) {
+        matched.push(s);
+      }
+    }
+    matched.sort(function (a, b) {
+      var ma = timeToMinutes(a.start);
+      var mb = timeToMinutes(b.start);
+      if (ma === null) return 1;
+      if (mb === null) return -1;
+      return ma - mb;
+    });
+    return matched;
+  }
+
+  function computeRestPeriods(workSlots) {
+    if (!workSlots || workSlots.length <= 1) return [];
+    var rests = [];
+    for (var i = 0; i < workSlots.length - 1; i++) {
+      var prevEnd = timeToMinutes(workSlots[i].end);
+      var nextStart = timeToMinutes(workSlots[i + 1].start);
+      if (prevEnd !== null && nextStart !== null && nextStart > prevEnd) {
+        rests.push(minutesToTime(prevEnd) + "-" + minutesToTime(nextStart));
+      }
+    }
+    return rests;
+  }
+
+  function syncSlotsToRosters(dateStr) {
+    var allStaff = (window.rosterState && window.rosterState.staffList) || [];
+    for (var i = 0; i < allStaff.length; i++) {
+      var st = allStaff[i];
+      var rec = window.getOrCreateRoster(st.id, dateStr);
+      var mySlots = getStaffWorkSlots(st.id, dateStr);
+      var rests = computeRestPeriods(mySlots);
+
+      rec.shift_1 = mySlots[0] ? (mySlots[0].position + " (" + mySlots[0].start + "-" + mySlots[0].end + ")") : "";
+      rec.shift_2 = mySlots[1] ? (mySlots[1].position + " (" + mySlots[1].start + "-" + mySlots[1].end + ")") : "";
+      rec.extra_shifts = [];
+      for (var j = 2; j < mySlots.length; j++) {
+        rec.extra_shifts.push(mySlots[j].position + " (" + mySlots[j].start + "-" + mySlots[j].end + ")");
+      }
+      rec.break_off_slots = rests;
+      if (mySlots.length > 0) {
+        rec.work_hours = mySlots[0].start + "-" + mySlots[mySlots.length - 1].end;
+      }
+    }
   }
 
   function isOffDay(staffId, rec) {
@@ -413,11 +496,9 @@
     var dayTitle = document.getElementById("daySectionTitle");
     var dayControls = document.getElementById("dayCutControls");
     var btnSaveAll = document.getElementById("btnSaveAllRosters");
-    var dayActHdr = document.getElementById("dayActionHeader");
     if (dayTitle) dayTitle.textContent = leader ? "Cắt Lịch Trong Ngày" : "Vị Trí Trong Ngày";
-    if (dayControls) dayControls.style.display = leader ? "flex" : "none";
+    if (dayControls) dayControls.style.display = leader ? "block" : "none";
     if (btnSaveAll) btnSaveAll.style.display = leader ? "inline-block" : "none";
-    if (dayActHdr) dayActHdr.style.display = leader ? "" : "none";
 
     var monthTitle = document.getElementById("monthSectionTitle");
     var monthHint = document.getElementById("monthHintText");
@@ -608,10 +689,11 @@
       : Promise.resolve();
 
     return task.then(function () {
+      syncSlotsToRosters(date);
       renderPanelStats();
       renderMyPersonalCard();
       renderStaffList();
-      renderStaffDropdown();
+      renderPositionSlotSelectorsAndCards();
       renderDaySchedule();
     });
   };
@@ -823,36 +905,172 @@
     });
   }
 
-  function renderStaffDropdown() {
-    var sel = document.getElementById("offStaffSelect");
-    if (!sel || !window.rosterState) return;
-    sel.innerHTML = "";
-    var list = window.rosterState.staffList || [];
-
+  // TAB 2: CẮT LỊCH TRONG NGÀY THEO VỊ TRÍ & KHUNG GIỜ
+  function getStaffNameById(staffId) {
+    var list = (window.rosterState && window.rosterState.staffList) || [];
     for (var i = 0; i < list.length; i++) {
-      var s = list[i];
-      var opt = document.createElement("option");
-      opt.value = s.id;
-      opt.textContent = (s.full_name || "") + " (" + normalizeJobTitle(s) + ")";
-      sel.appendChild(opt);
+      if (list[i].id === staffId) return list[i].full_name || list[i].employee_code || "";
+    }
+    return "";
+  }
+
+  function renderPositionSlotSelectorsAndCards() {
+    var date = getSelectedDate();
+    var slots = getDaySlots(date);
+    var staffList = (window.rosterState && window.rosterState.staffList) || [];
+
+    var slotSel = document.getElementById("assignSlotSelect");
+    var staffSel = document.getElementById("assignStaffSelect");
+    var container = document.getElementById("positionSlotsContainer");
+
+    if (slotSel) {
+      var prevSlot = slotSel.value;
+      slotSel.innerHTML = "";
+      for (var i = 0; i < slots.length; i++) {
+        var opt = document.createElement("option");
+        opt.value = slots[i].id;
+        opt.textContent = slots[i].position + " (" + slots[i].start + " - " + slots[i].end + ")";
+        slotSel.appendChild(opt);
+      }
+      if (prevSlot) slotSel.value = prevSlot;
+    }
+
+    if (staffSel) {
+      staffSel.innerHTML = "";
+      for (var j = 0; j < staffList.length; j++) {
+        var sOpt = document.createElement("option");
+        sOpt.value = staffList[j].id;
+        sOpt.textContent = (staffList[j].full_name || "") + " - " + normalizeJobTitle(staffList[j]);
+        staffSel.appendChild(sOpt);
+      }
+    }
+
+    if (!container) return;
+    container.innerHTML = "";
+
+    if (!slots.length) {
+      container.innerHTML = "<div class='small-muted'>Chưa có vị trí &amp; khung giờ làm việc nào cho ngày " + date + ".</div>";
+      return;
+    }
+
+    for (var k = 0; k < slots.length; k++) {
+      (function (slot) {
+        var card = document.createElement("div");
+        card.className = "slot-card";
+
+        var head = document.createElement("div");
+        head.className = "slot-header";
+
+        var titleEl = document.createElement("div");
+        titleEl.innerHTML = "<strong>" + slot.position + "</strong> <span class='small-muted'>(" +
+          slot.start + " - " + slot.end + ")</span>";
+
+        var btnDelSlot = document.createElement("button");
+        btnDelSlot.type = "button";
+        btnDelSlot.className = "btn-danger btn-sm";
+        btnDelSlot.textContent = "Xóa khung";
+        btnDelSlot.addEventListener("click", function () {
+          daySlotsByDate[date] = getDaySlots(date).filter(function (item) {
+            return item.id !== slot.id;
+          });
+          saveDaySlots(date);
+          renderPositionSlotSelectorsAndCards();
+          renderDaySchedule();
+        });
+
+        head.appendChild(titleEl);
+        head.appendChild(btnDelSlot);
+        card.appendChild(head);
+
+        var chipsWrap = document.createElement("div");
+        var assigned = slot.staffIds || [];
+        if (!assigned.length) {
+          chipsWrap.innerHTML = "<span class='small-muted'>Chưa có nhân viên nào ở vị trí này.</span>";
+        } else {
+          for (var a = 0; a < assigned.length; a++) {
+            (function (stId) {
+              var chip = document.createElement("span");
+              chip.className = "assigned-chip";
+              var txt = document.createElement("span");
+              txt.textContent = getStaffNameById(stId);
+              var xBtn = document.createElement("button");
+              xBtn.type = "button";
+              xBtn.textContent = "×";
+              xBtn.title = "Bỏ nhân viên khỏi vị trí";
+              xBtn.addEventListener("click", function () {
+                slot.staffIds = (slot.staffIds || []).filter(function (id) { return id !== stId; });
+                saveDaySlots(date);
+                renderPositionSlotSelectorsAndCards();
+                renderDaySchedule();
+              });
+              chip.appendChild(txt);
+              chip.appendChild(xBtn);
+              chipsWrap.appendChild(chip);
+            })(assigned[a]);
+          }
+        }
+        card.appendChild(chipsWrap);
+        container.appendChild(card);
+      })(slots[k]);
     }
   }
 
-  function formatPositionsSummary(rec, off) {
-    if (off) return "OFF cả ngày";
-    var parts = [];
-    if (rec.shift_1) parts.push("Ca 1: " + rec.shift_1);
-    if (rec.shift_2) parts.push("Ca 2: " + rec.shift_2);
-    var extra = rec.extra_shifts || [];
-    for (var i = 0; i < extra.length; i++) {
-      if (extra[i]) parts.push("Ca " + (i + 3) + ": " + extra[i]);
-    }
-    var slots = rec.break_off_slots || [];
-    if (slots.length && !parts.length) {
-      return "Nghỉ ngơi tại chỗ (" + slots.join(", ") + ")";
-    }
-    if (!parts.length) return "Nghỉ ngơi tại chỗ";
-    return parts.join(" | ");
+  var addPositionSlotForm = document.getElementById("addPositionSlotForm");
+  if (addPositionSlotForm) {
+    addPositionSlotForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (!isShiftLeader()) return;
+      var pos = document.getElementById("slotPositionInput").value.trim();
+      var start = document.getElementById("slotStartInput").value;
+      var end = document.getElementById("slotEndInput").value;
+      var date = getSelectedDate();
+
+      if (!pos || !start || !end) return alert("Nhập đủ vị trí làm việc và khoảng thời gian làm.");
+
+      var slots = getDaySlots(date);
+      slots.push({
+        id: "slot_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        position: pos,
+        start: start,
+        end: end,
+        staffIds: []
+      });
+      saveDaySlots(date);
+      document.getElementById("slotPositionInput").value = "";
+      renderPositionSlotSelectorsAndCards();
+      renderDaySchedule();
+    });
+  }
+
+  var btnAddStaffToSlot = document.getElementById("btnAddStaffToSlot");
+  if (btnAddStaffToSlot) {
+    btnAddStaffToSlot.addEventListener("click", function () {
+      if (!isShiftLeader()) return;
+      var date = getSelectedDate();
+      var slots = getDaySlots(date);
+      var slotId = document.getElementById("assignSlotSelect").value;
+      var staffId = document.getElementById("assignStaffSelect").value;
+
+      if (!slotId || !staffId) return alert("Vui lòng tạo vị trí/khung giờ trước và chọn nhân viên.");
+
+      var targetSlot = null;
+      for (var i = 0; i < slots.length; i++) {
+        if (slots[i].id === slotId) {
+          targetSlot = slots[i];
+          break;
+        }
+      }
+      if (!targetSlot) return;
+
+      if (!Array.isArray(targetSlot.staffIds)) targetSlot.staffIds = [];
+      if (targetSlot.staffIds.indexOf(staffId) === -1) {
+        targetSlot.staffIds.push(staffId);
+      }
+
+      saveDaySlots(date);
+      renderPositionSlotSelectorsAndCards();
+      renderDaySchedule();
+    });
   }
 
   function renderDaySchedule() {
@@ -860,7 +1078,6 @@
     if (!tbody || !window.rosterState) return;
     tbody.innerHTML = "";
 
-    var leader = isShiftLeader();
     var date = getSelectedDate();
     var list = getVisibleStaffList();
 
@@ -868,141 +1085,43 @@
       (function (staff) {
         var rec = window.getOrCreateRoster(staff.id, date);
         var off = isOffDay(staff.id, rec);
-        var tr = document.createElement("tr");
+        var mySlots = getStaffWorkSlots(staff.id, date);
+        var rests = computeRestPeriods(mySlots);
 
+        var tr = document.createElement("tr");
         tr.appendChild(makeTextCell(staff.full_name || "", true));
         tr.appendChild(makeTextCell(normalizeJobTitle(staff), false));
 
-        var timeTd = document.createElement("td");
-        if (leader) {
-          var timeInput = document.createElement("input");
-          timeInput.type = "text";
-          timeInput.value = off ? "OFF" : (rec.work_hours || "06:00-18:00");
-          timeInput.disabled = off;
-          timeInput.style.width = "120px";
-          timeInput.addEventListener("change", function () {
-            rec.work_hours = timeInput.value;
-          });
-          timeTd.appendChild(timeInput);
-        } else {
-          timeTd.textContent = off ? "OFF" : (rec.work_hours || "06:00-18:00");
-        }
-        tr.appendChild(timeTd);
-
-        var posTd = document.createElement("td");
-        if (leader) {
-          var s1 = document.createElement("input");
-          s1.type = "text";
-          s1.placeholder = "Vị trí Ca 1 (A, B...)";
-          s1.value = rec.shift_1 || "";
-          s1.disabled = off;
-          s1.style.width = "110px";
-          s1.style.marginRight = "4px";
-          s1.addEventListener("change", function () { rec.shift_1 = s1.value; });
-
-          var s2 = document.createElement("input");
-          s2.type = "text";
-          s2.placeholder = "Vị trí Ca 2 (A, B...)";
-          s2.value = rec.shift_2 || "";
-          s2.disabled = off;
-          s2.style.width = "110px";
-          s2.style.marginRight = "4px";
-          s2.addEventListener("change", function () { rec.shift_2 = s2.value; });
-
-          posTd.appendChild(s1);
-          posTd.appendChild(s2);
-
-          var extraArr = rec.extra_shifts || [];
-          for (var j = 0; j < extraArr.length; j++) {
-            (function (idx) {
-              var ex = document.createElement("input");
-              ex.type = "text";
-              ex.placeholder = "Ca " + (idx + 3);
-              ex.value = extraArr[idx] || "";
-              ex.disabled = off;
-              ex.style.width = "90px";
-              ex.style.marginLeft = "4px";
-              ex.addEventListener("change", function () { rec.extra_shifts[idx] = ex.value; });
-              posTd.appendChild(ex);
-            })(j);
+        var workTd = document.createElement("td");
+        if (off) {
+          workTd.innerHTML = "<span class='badge-off'>OFF CẢ NGÀY</span>";
+        } else if (mySlots.length > 0) {
+          var lines = [];
+          for (var sIdx = 0; sIdx < mySlots.length; sIdx++) {
+            var sl = mySlots[sIdx];
+            lines.push("<strong>" + sl.position + "</strong>: " + sl.start + " - " + sl.end);
           }
-
-          var addBtn = document.createElement("button");
-          addBtn.type = "button";
-          addBtn.className = "btn-primary btn-sm";
-          addBtn.textContent = "+ Ca";
-          addBtn.disabled = off;
-          addBtn.style.marginLeft = "4px";
-          addBtn.addEventListener("click", function () {
-            if (!Array.isArray(rec.extra_shifts)) rec.extra_shifts = [];
-            rec.extra_shifts.push("");
-            renderDaySchedule();
-          });
-          posTd.appendChild(addBtn);
+          workTd.innerHTML = lines.join("<br>");
         } else {
-          posTd.textContent = formatPositionsSummary(rec, off);
+          workTd.textContent = "Nghỉ ngơi tại chỗ";
         }
-        tr.appendChild(posTd);
+        tr.appendChild(workTd);
 
         var restTd = document.createElement("td");
         if (off) {
-          var badge = document.createElement("span");
-          badge.className = "badge-off";
-          badge.textContent = "OFF CẢ NGÀY";
-          restTd.appendChild(badge);
+          restTd.textContent = "Nghỉ cả ngày";
+        } else if (rests.length > 0) {
+          restTd.innerHTML = "<strong>" + rests.join(", ") + "</strong>";
+        } else if (mySlots.length > 0) {
+          restTd.textContent = "Không có khoảng nghỉ giữa ca";
         } else {
-          var slots = rec.break_off_slots || [];
-          restTd.textContent = slots.length ? slots.join(", ") : "Không nghỉ";
+          restTd.textContent = "Nghỉ ngơi tại chỗ";
         }
         tr.appendChild(restTd);
-
-        if (leader) {
-          var actTd = document.createElement("td");
-          var btnOff = document.createElement("button");
-          btnOff.type = "button";
-          btnOff.className = "btn-warning btn-sm";
-          btnOff.textContent = off ? "Mở làm lại" : "Cắt OFF";
-          btnOff.addEventListener("click", function () {
-            rec.is_day_off = !rec.is_day_off;
-            var p = (typeof window.upsertSingleRoster === "function")
-              ? window.upsertSingleRoster(rec)
-              : Promise.resolve();
-            p.then(function () {
-              renderPanelStats();
-              renderDaySchedule();
-            });
-          });
-          actTd.appendChild(btnOff);
-          tr.appendChild(actTd);
-        }
 
         tbody.appendChild(tr);
       })(list[i]);
     }
-  }
-
-  var btnCutTimeOff = document.getElementById("btnCutTimeOff");
-  if (btnCutTimeOff) {
-    btnCutTimeOff.addEventListener("click", function () {
-      if (!isShiftLeader()) return;
-      var client = getClient();
-      if (!client) return;
-      var staffId = document.getElementById("offStaffSelect").value;
-      var start = document.getElementById("offStart").value;
-      var end = document.getElementById("offEnd").value;
-      var date = getSelectedDate();
-
-      if (!staffId || !start || !end) return alert("Chọn nhân sự và nhập đủ giờ bắt đầu, kết thúc");
-
-      var rec = window.getOrCreateRoster(staffId, date);
-      if (!Array.isArray(rec.break_off_slots)) rec.break_off_slots = [];
-      rec.break_off_slots.push(start + "-" + end);
-
-      var p = (typeof window.upsertSingleRoster === "function")
-        ? window.upsertSingleRoster(rec)
-        : Promise.resolve();
-      p.then(renderDaySchedule);
-    });
   }
 
   var btnCutDayOff = document.getElementById("btnCutDayOff");
@@ -1011,7 +1130,7 @@
       if (!isShiftLeader()) return;
       var client = getClient();
       if (!client) return;
-      var staffId = document.getElementById("offStaffSelect").value;
+      var staffId = document.getElementById("assignStaffSelect").value;
       var date = getSelectedDate();
       if (!staffId) return;
 
@@ -1041,6 +1160,10 @@
   if (btnSaveAll) {
     btnSaveAll.addEventListener("click", function () {
       if (!isShiftLeader()) return;
+      var date = getSelectedDate();
+      syncSlotsToRosters(date);
+      saveDaySlots(date);
+
       var mapObj = (window.rosterState && window.rosterState.rostersByStaff) || {};
       var keys = Object.keys(mapObj);
       var chain = Promise.resolve();
@@ -1055,7 +1178,7 @@
       }
       chain.then(function () {
         renderPanelStats();
-        alert("Đã lưu lịch ngày " + getSelectedDate());
+        alert("Đã lưu lịch ngày " + date);
       }).catch(function (err) {
         alert("Lỗi lưu lịch: " + err.message);
       });
@@ -1068,6 +1191,7 @@
     });
   }
 
+  // TAB 3: CẮT LỊCH TRONG THÁNG
   function renderMonthSchedule() {
     var tbody = document.getElementById("monthScheduleBody");
     if (!tbody || !window.rosterState) return;
