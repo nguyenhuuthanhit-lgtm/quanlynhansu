@@ -4,13 +4,24 @@
 (function (global) {
   var Core = global.AppCore;
 
+  function getStaffGroupValue(staff) {
+    if (!staff) return "";
+    if (staff.shift_group !== null && staff.shift_group !== undefined && String(staff.shift_group).trim() !== "") {
+      return String(staff.shift_group).trim();
+    }
+    if (staff.team_id !== null && staff.team_id !== undefined && String(staff.team_id).trim() !== "") {
+      return String(staff.team_id).trim();
+    }
+    return "";
+  }
+
   function renderMyPersonalCard() {
     var grid = document.getElementById("myPersonalGrid");
     var s = global.currentStaff;
     if (!grid || !s) return;
     var teamName = (global.AppTeams && global.AppTeams.getTeamNameById)
-      ? global.AppTeams.getTeamNameById(s.shift_group)
-      : "";
+      ? global.AppTeams.getTeamNameById(getStaffGroupValue(s))
+      : "Chưa phân tổ";
     grid.innerHTML =
       '<div class="info-box"><div class="small-muted">Mã nhân viên</div><strong>' + (s.employee_code || "") + '</strong></div>' +
       '<div class="info-box"><div class="small-muted">Họ và tên</div><strong>' + (s.full_name || "") + '</strong></div>' +
@@ -30,11 +41,27 @@
     if (global.AppTeams && global.AppTeams.renderTeamSelectors) {
       global.AppTeams.renderTeamSelectors();
     }
-    document.getElementById("editStaffId").value = staff.id;
+    document.getElementById("editStaffId").value = String(staff.id || "");
     document.getElementById("editEmpCode").value = staff.employee_code || "";
     document.getElementById("editFullName").value = staff.full_name || "";
     document.getElementById("editJobTitle").value = Core.normalizeJobTitle(staff);
-    document.getElementById("editShiftGroup").value = String(Core.parsePositiveInt(staff.shift_group, 1));
+
+    var selGroup = document.getElementById("editShiftGroup");
+    var currentGroup = getStaffGroupValue(staff);
+    if (selGroup && currentGroup) {
+      var found = false;
+      for (var i = 0; i < selGroup.options.length; i++) {
+        if (selGroup.options[i].value === currentGroup) {
+          selGroup.value = currentGroup;
+          found = true;
+          break;
+        }
+      }
+      if (!found && selGroup.options.length > 0) {
+        selGroup.value = selGroup.options[0].value;
+      }
+    }
+
     document.getElementById("editRole").value = staff.role || "staff";
     if (editModal) editModal.classList.add("open");
   }
@@ -44,14 +71,18 @@
     editStaffForm.addEventListener("submit", function (e) {
       e.preventDefault();
       var client = Core.getClient();
-      if (!client) return;
+      if (!client) return alert("Chưa kết nối Supabase");
 
-      var id = document.getElementById("editStaffId").value;
+      var id = String(document.getElementById("editStaffId").value || "").trim();
       var code = document.getElementById("editEmpCode").value.trim().toUpperCase();
       var name = document.getElementById("editFullName").value.trim();
       var jobTitle = document.getElementById("editJobTitle").value;
-      var group = Core.parsePositiveInt(document.getElementById("editShiftGroup").value, 1);
+      var groupRaw = String(document.getElementById("editShiftGroup").value || "").trim();
       var role = document.getElementById("editRole").value || "staff";
+
+      if (!id || !code || !name) return alert("Vui lòng nhập đủ Mã NV và Họ tên.");
+
+      var groupVal = groupRaw || null;
 
       client
         .from("profiles")
@@ -60,13 +91,31 @@
           full_name: name,
           job_title: jobTitle,
           experience_years: Core.expFromJobTitle(jobTitle),
-          shift_group: group,
+          shift_group: groupVal,
           role: role
         })
         .eq("id", id)
+        .select()
         .then(function (res) {
-          if (res.error) return alert("Lỗi cập nhật nhân viên: " + res.error.message);
+          if (res.error) {
+            return alert("Lỗi cập nhật nhân viên: " + res.error.message);
+          }
+          if (global.rosterState && Array.isArray(global.rosterState.staffList)) {
+            for (var i = 0; i < global.rosterState.staffList.length; i++) {
+              if (String(global.rosterState.staffList[i].id) === id) {
+                global.rosterState.staffList[i] = Object.assign({}, global.rosterState.staffList[i], {
+                  employee_code: code,
+                  full_name: name,
+                  job_title: jobTitle,
+                  experience_years: Core.expFromJobTitle(jobTitle),
+                  shift_group: groupVal,
+                  role: role
+                });
+              }
+            }
+          }
           if (editModal) editModal.classList.remove("open");
+          renderStaffList();
           if (global.AppTabs && global.AppTabs.loadDashboardData) global.AppTabs.loadDashboardData();
         });
     });
@@ -81,9 +130,10 @@
 
     for (var i = 0; i < list.length; i++) {
       (function (s) {
+        var groupVal = getStaffGroupValue(s);
         var teamName = (global.AppTeams && global.AppTeams.getTeamNameById)
-          ? global.AppTeams.getTeamNameById(s.shift_group)
-          : "";
+          ? global.AppTeams.getTeamNameById(groupVal)
+          : "Chưa phân tổ";
 
         var tr = document.createElement("tr");
         tr.appendChild(Core.makeTextCell(s.employee_code || "", true));
@@ -159,7 +209,7 @@
       var code = document.getElementById("empCode").value.trim().toUpperCase();
       var name = document.getElementById("fullName").value.trim();
       var jobTitle = document.getElementById("empJobTitle").value;
-      var group = Core.parsePositiveInt(document.getElementById("shiftGroupInput").value, 1);
+      var groupRaw = String(document.getElementById("shiftGroupInput").value || "").trim();
       var role = document.getElementById("roleInput").value || "staff";
 
       if (!code || !name) return alert("Nhập đủ Mã NV và Tên nhân sự");
@@ -171,13 +221,14 @@
           full_name: name,
           job_title: jobTitle,
           experience_years: Core.expFromJobTitle(jobTitle),
-          shift_group: group,
+          shift_group: groupRaw || null,
           base_shift_type: "DEP",
           role: role,
           auth_password: "12345",
           must_change_password: true,
           is_active: true
         })
+        .select()
         .then(function (res) {
           if (res.error) return alert("Lỗi thêm nhân viên: " + res.error.message);
           staffForm.reset();
