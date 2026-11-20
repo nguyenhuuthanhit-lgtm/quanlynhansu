@@ -67,16 +67,15 @@
     });
   }
 
-  // Quản lý danh sách Tổ / Nhóm (hiển thị đúng tên tổ)
   function saveTeamsLocal(list) {
     try {
-      localStorage.setItem("airport_teams_v3", JSON.stringify(list));
+      localStorage.setItem("airport_teams_v4", JSON.stringify(list));
     } catch (e) {}
   }
 
   function readTeamsLocal() {
     try {
-      var raw = JSON.parse(localStorage.getItem("airport_teams_v3") || "null");
+      var raw = JSON.parse(localStorage.getItem("airport_teams_v4") || "null");
       if (Array.isArray(raw)) return raw;
     } catch (e) {}
     return [];
@@ -319,7 +318,6 @@
     });
   }
 
-  // Quản lý Vị trí làm việc + Khoảng thời gian làm trong ngày
   function getDaySlots(dateStr) {
     if (!daySlotsByDate[dateStr]) {
       try {
@@ -389,6 +387,7 @@
   }
 
   function syncSlotsToRosters(dateStr) {
+    if (typeof window.getOrCreateRoster !== "function") return;
     var allStaff = (window.rosterState && window.rosterState.staffList) || [];
     for (var i = 0; i < allStaff.length; i++) {
       var st = allStaff[i];
@@ -905,7 +904,6 @@
     });
   }
 
-  // TAB 2: CẮT LỊCH TRONG NGÀY THEO VỊ TRÍ & KHUNG GIỜ
   function getStaffNameById(staffId) {
     var list = (window.rosterState && window.rosterState.staffList) || [];
     for (var i = 0; i < list.length; i++) {
@@ -1083,7 +1081,9 @@
 
     for (var i = 0; i < list.length; i++) {
       (function (staff) {
-        var rec = window.getOrCreateRoster(staff.id, date);
+        var rec = typeof window.getOrCreateRoster === "function"
+          ? window.getOrCreateRoster(staff.id, date)
+          : null;
         var off = isOffDay(staff.id, rec);
         var mySlots = getStaffWorkSlots(staff.id, date);
         var rests = computeRestPeriods(mySlots);
@@ -1191,7 +1191,6 @@
     });
   }
 
-  // TAB 3: CẮT LỊCH TRONG THÁNG
   function renderMonthSchedule() {
     var tbody = document.getElementById("monthScheduleBody");
     if (!tbody || !window.rosterState) return;
@@ -1322,24 +1321,26 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    var client = getClient();
-    var savedId = sessionStorage.getItem("loggedInStaffId");
-    if (client && savedId) {
-      client
-        .from("profiles")
-        .select("*")
-        .eq("id", savedId)
-        .eq("is_active", true)
-        .maybeSingle()
-        .then(function (res) {
-          if (res && res.data) {
-            showAppView(res.data);
-          } else {
-            showLoginView();
-          }
-        });
-    } else {
-      showLoginView();
-    }
+    setTimeout(function () {
+      var client = getClient();
+      var savedId = sessionStorage.getItem("loggedInStaffId");
+      if (client && savedId) {
+        client
+          .from("profiles")
+          .select("*")
+          .eq("id", savedId)
+          .eq("is_active", true)
+          .maybeSingle()
+          .then(function (res) {
+            if (res && res.data) {
+              showAppView(res.data);
+            } else {
+              showLoginView();
+            }
+          });
+      } else {
+        showLoginView();
+      }
+    }, 50);
   });
 })();
