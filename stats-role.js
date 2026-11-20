@@ -1,5 +1,6 @@
 // =========================================================================
 // [COMPONENT: js/stats-role.js] THỐNG KÊ TỔNG QUAN & PHÂN QUYỀN VAI TRÒ
+// Nhãn thống kê: "Nhân viên học viện" & "Nhân viên chính thức".
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
@@ -12,15 +13,18 @@
   function renderPanelStats() {
     var allStaff = (global.rosterState && global.rosterState.staffList) || [];
     var total = allStaff.length;
-    var oldCount = 0;
-    var newCount = 0;
+    var officialCount = 0; // Nhân viên chính thức
+    var traineeCount = 0;  // Nhân viên học viện
     var offTodayCount = 0;
     var date = Core.getSelectedDate();
 
     for (var i = 0; i < allStaff.length; i++) {
       var s = allStaff[i];
-      if (Core.normalizeJobTitle(s) === "Chính thức") oldCount++;
-      else newCount++;
+      if (Core.normalizeJobTitle(s) === "Chính thức") {
+        officialCount++;
+      } else {
+        traineeCount++;
+      }
 
       var rec = (global.rosterState && global.rosterState.rostersByStaff)
         ? global.rosterState.rostersByStaff[s.id]
@@ -40,8 +44,8 @@
     var elOff = document.getElementById("statOffToday");
 
     if (elTotal) elTotal.textContent = String(total);
-    if (elNew) elNew.textContent = String(newCount);
-    if (elOld) elOld.textContent = String(oldCount);
+    if (elNew) elNew.textContent = String(traineeCount);
+    if (elOld) elOld.textContent = String(officialCount);
     if (elWork) elWork.textContent = String(workTodayCount);
     if (elOff) elOff.textContent = String(offTodayCount);
   }
