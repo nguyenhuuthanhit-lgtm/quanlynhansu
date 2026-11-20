@@ -15,6 +15,16 @@
     return "";
   }
 
+  function toSafeIntegerGroup(selectedValue) {
+    if (global.AppTeams && typeof global.AppTeams.getTeamNumberById === "function") {
+      var mapped = global.AppTeams.getTeamNumberById(selectedValue);
+      if (Number.isInteger(mapped) && mapped >= 1) return mapped;
+    }
+    var n = Number(selectedValue);
+    if (Number.isInteger(n) && n >= 1) return n;
+    return null;
+  }
+
   function renderMyPersonalCard() {
     var grid = document.getElementById("myPersonalGrid");
     var s = global.currentStaff;
@@ -47,17 +57,19 @@
     document.getElementById("editJobTitle").value = Core.normalizeJobTitle(staff);
 
     var selGroup = document.getElementById("editShiftGroup");
-    var currentGroup = getStaffGroupValue(staff);
-    if (selGroup && currentGroup) {
-      var found = false;
+    var currentNum = toSafeIntegerGroup(getStaffGroupValue(staff));
+
+    if (selGroup) {
+      var matched = false;
       for (var i = 0; i < selGroup.options.length; i++) {
-        if (selGroup.options[i].value === currentGroup) {
-          selGroup.value = currentGroup;
-          found = true;
+        var optVal = selGroup.options[i].value;
+        if (currentNum !== null && toSafeIntegerGroup(optVal) === currentNum) {
+          selGroup.value = optVal;
+          matched = true;
           break;
         }
       }
-      if (!found && selGroup.options.length > 0) {
+      if (!matched && selGroup.options.length > 0) {
         selGroup.value = selGroup.options[0].value;
       }
     }
@@ -70,7 +82,7 @@
   if (editStaffForm) {
     editStaffForm.addEventListener("submit", function (e) {
       e.preventDefault();
-      var client = Core.getClient();
+      var client = Core && typeof Core.getClient === "function" ? Core.getClient() : null;
       if (!client) return alert("Chưa kết nối Supabase");
 
       var id = String(document.getElementById("editStaffId").value || "").trim();
@@ -82,7 +94,7 @@
 
       if (!id || !code || !name) return alert("Vui lòng nhập đủ Mã NV và Họ tên.");
 
-      var groupVal = groupRaw || null;
+      var groupInt = toSafeIntegerGroup(groupRaw);
 
       client
         .from("profiles")
@@ -91,7 +103,7 @@
           full_name: name,
           job_title: jobTitle,
           experience_years: Core.expFromJobTitle(jobTitle),
-          shift_group: groupVal,
+          shift_group: groupInt,
           role: role
         })
         .eq("id", id)
@@ -108,7 +120,7 @@
                   full_name: name,
                   job_title: jobTitle,
                   experience_years: Core.expFromJobTitle(jobTitle),
-                  shift_group: groupVal,
+                  shift_group: groupInt,
                   role: role
                 });
               }
@@ -126,7 +138,7 @@
     if (!tbody || !global.rosterState) return;
     tbody.innerHTML = "";
     var list = global.rosterState.staffList || [];
-    var canManage = Core.isShiftLeader();
+    var canManage = Core && typeof Core.isShiftLeader === "function" ? Core.isShiftLeader() : false;
 
     for (var i = 0; i < list.length; i++) {
       (function (s) {
@@ -203,7 +215,7 @@
   if (staffForm) {
     staffForm.addEventListener("submit", function (e) {
       e.preventDefault();
-      var client = Core.getClient();
+      var client = Core && typeof Core.getClient === "function" ? Core.getClient() : null;
       if (!client) return alert("Chưa kết nối Supabase");
 
       var code = document.getElementById("empCode").value.trim().toUpperCase();
@@ -221,7 +233,7 @@
           full_name: name,
           job_title: jobTitle,
           experience_years: Core.expFromJobTitle(jobTitle),
-          shift_group: groupRaw || null,
+          shift_group: toSafeIntegerGroup(groupRaw),
           base_shift_type: "DEP",
           role: role,
           auth_password: "12345",
