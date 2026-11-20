@@ -289,47 +289,66 @@
     </section>
 
     <!-- [C.5] TAB 2: CẮT LỊCH TRONG NGÀY THEO VỊ TRÍ & KHUNG GIỜ -->
+        <!-- =====================================================================
+         [C.5] TAB 2: TẠO CA LÀM VIỆC (TỪ NGÀY/GIỜ ĐẾN NGÀY/GIỜ + DEP/ARR)
+         ===================================================================== -->
     <section id="tabDay" class="tab-panel">
       <div class="card">
         <div class="section-head">
-          <h2 id="daySectionTitle">Cắt Lịch Trong Ngày</h2>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <input type="date" id="workDate" />
-            <button type="button" id="btnSaveAllRosters" class="btn-success">Lưu lịch ngày</button>
-          </div>
+          <h2 id="daySectionTitle">Tạo Ca Làm Việc &amp; Phân Vị Trí</h2>
+          <div class="small-muted">Tự động lưu khi tạo ca hoặc thêm/bỏ nhân viên</div>
         </div>
 
         <div id="dayCutControls" style="margin-top:12px;">
-          <form id="addPositionSlotForm" class="form-row" style="margin-bottom:12px;">
-            <div>
-              <label>Vị trí làm việc</label>
-              <input type="text" id="slotPositionInput" placeholder="VD: Vị trí A / Cửa soi 1" required />
+          <form id="addPositionSlotForm" style="margin-bottom:14px;">
+            <div class="form-row">
+              <div>
+                <label>Vị trí làm việc</label>
+                <input type="text" id="slotPositionInput" placeholder="VD: Vị trí A / Cửa soi 1" required />
+              </div>
+              <div>
+                <label>Hướng ca</label>
+                <select id="slotDirectionInput" class="inline-select" style="width:100%; padding:8px;">
+                  <option value="DEP">DEP (Khởi hành)</option>
+                  <option value="ARR">ARR (Hạ cánh)</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label>Giờ bắt đầu làm</label>
-              <input type="time" id="slotStartInput" value="06:00" required />
+
+            <div class="form-row">
+              <div>
+                <label>Từ ngày</label>
+                <input type="date" id="slotStartDateInput" required />
+              </div>
+              <div>
+                <label>Từ giờ</label>
+                <input type="time" id="slotStartTimeInput" value="08:00" required />
+              </div>
+              <div>
+                <label>Đến ngày</label>
+                <input type="date" id="slotEndDateInput" required />
+              </div>
+              <div>
+                <label>Đến giờ</label>
+                <input type="time" id="slotEndTimeInput" value="08:00" required />
+              </div>
             </div>
-            <div>
-              <label>Giờ kết thúc làm</label>
-              <input type="time" id="slotEndInput" value="12:00" required />
-            </div>
-            <div style="display:flex; align-items:flex-end;">
-              <button type="submit" class="btn-primary">+ Thêm vị trí &amp; khung giờ</button>
-            </div>
+
+            <button type="submit" class="btn-primary">+ Tạo ca làm việc</button>
           </form>
 
           <div class="form-row">
             <div>
-              <label>Chọn vị trí &amp; khung giờ</label>
+              <label>Chọn ca làm việc đã tạo</label>
               <select id="assignSlotSelect"></select>
             </div>
             <div>
-              <label>Chọn nhân viên thêm vào vị trí</label>
+              <label>Chọn nhân viên thêm vào ca</label>
               <select id="assignStaffSelect"></select>
             </div>
             <div style="display:flex; align-items:flex-end; gap:6px; flex-wrap:wrap;">
-              <button type="button" id="btnAddStaffToSlot" class="btn-success">+ Thêm nhân viên vào vị trí</button>
-              <button type="button" id="btnCutDayOff" class="btn-danger">Cắt OFF cả ngày</button>
+              <button type="button" id="btnAddStaffToSlot" class="btn-success">+ Thêm nhân viên vào ca</button>
+              <button type="button" id="btnCutDayOff" class="btn-danger">Đánh dấu OFF</button>
             </div>
           </div>
 
@@ -338,15 +357,15 @@
       </div>
 
       <div class="card">
-        <h3>Tổng Hợp Vị Trí Làm Việc &amp; Thời Gian Nghỉ Ngơi Của Nhân Viên</h3>
+        <h3>Tổng Hợp Ca Làm Việc, Hướng Ca &amp; Thời Gian Nghỉ Tại Chỗ</h3>
         <div class="table-wrap" style="margin-top:8px;">
           <table>
             <thead>
               <tr>
                 <th>Tên nhân sự</th>
                 <th>Chức danh</th>
-                <th>Vị trí &amp; Khung giờ làm việc</th>
-                <th>Thời gian nghỉ ngơi</th>
+                <th>Ca làm việc &amp; Hướng (DEP/ARR)</th>
+                <th>Thời gian nghỉ tại chỗ</th>
               </tr>
             </thead>
             <tbody id="scheduleBody"></tbody>
@@ -354,6 +373,7 @@
         </div>
       </div>
     </section>
+
 
     <!-- [C.6] TAB 3: CẮT LỊCH TRONG THÁNG -->
     <section id="tabMonth" class="tab-panel">
