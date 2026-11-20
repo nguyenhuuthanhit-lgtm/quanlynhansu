@@ -1,76 +1,67 @@
 // =========================================================================
-// [COMPONENT: js/day-slots.js] TẠO CA LÀM VIỆC TỪ NGÀY/GIỜ ĐẾN NGÀY/GIỜ
-// Hỗ trợ chọn hướng ca DEP / ARR, ca 24h hôm nay sang ngày mai,
-// ca tối sang sáng và tự lưu ngay khi thao tác.
+// [COMPONENT: js/day-slots.js] QUẢN LÝ KHUNG CA TỔNG & CA CON TRONG KHUNG
+// Hỗ trợ tạo khung ca tổng (VD: 20/11 08:00 -> 21/11 08:00, DEP/ARR)
+// và các ca làm việc con bên trong để tính chính xác giờ nghỉ tới hết khung.
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
-  var STORAGE_KEY = "airport_custom_shifts_v1";
-  var shiftsList = [];
+  var STORAGE_KEY = "airport_shift_frames_v2";
+  var store = { frames: [], slots: [] };
 
-  function initDefaultDateInputs() {
-    var today = new Date();
-    var yyyy = today.getFullYear();
-    var mm = String(today.getMonth() + 1).padStart(2, "0");
-    var dd = String(today.getDate()).padStart(2, "0");
-    var todayStr = yyyy + "-" + mm + "-" + dd;
-
-    var tomorrow = new Date(today.getTime() + 86400000);
-    var tStr = tomorrow.getFullYear() + "-" +
-      String(tomorrow.getMonth() + 1).padStart(2, "0") + "-" +
-      String(tomorrow.getDate()).padStart(2, "0");
-
-    var startDateEl = document.getElementById("slotStartDateInput");
-    var endDateEl = document.getElementById("slotEndDateInput");
-    if (startDateEl && !startDateEl.value) startDateEl.value = todayStr;
-    if (endDateEl && !endDateEl.value) endDateEl.value = tStr;
+  function formatDateInput(d) {
+    return d.getFullYear() + "-" +
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0");
   }
 
-  function loadShiftsFromStorage() {
+  function initDefaultDates() {
+    var now = new Date();
+    var tomorrow = new Date(now.getTime() + 86400000);
+    var tStr = formatDateInput(now);
+    var tmStr = formatDateInput(tomorrow);
+
+    var fStartD = document.getElementById("frameStartDateInput");
+    var fEndD = document.getElementById("frameEndDateInput");
+    var sStartD = document.getElementById("slotStartDateInput");
+    var sEndD = document.getElementById("slotEndDateInput");
+
+    if (fStartD && !fStartD.value) fStartD.value = tStr;
+    if (fEndD && !fEndD.value) fEndD.value = tmStr;
+    if (sStartD && !sStartD.value) sStartD.value = tStr;
+    if (sEndD && !sEndD.value) sEndD.value = tStr;
+  }
+
+  function loadStore() {
     try {
       var raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      shiftsList = Array.isArray(raw) ? raw : [];
-    } catch (e) {
-      shiftsList = [];
-    }
-    return shiftsList;
-  }
-
-  function getShifts() {
-    if (!shiftsList.length) {
-      loadShiftsFromStorage();
-    }
-    return shiftsList;
-  }
-
-  function saveShifts() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(shiftsList));
+      if (raw && Array.isArray(raw.frames) && Array.isArray(raw.slots)) {
+        store = raw;
+      }
     } catch (e) {}
-    if (global.AppDayRest && typeof global.AppDayRest.syncShiftsToState === "function") {
-      global.AppDayRest.syncShiftsToState(shiftsList);
+    return store;
+  }
+
+  function saveStore() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    } catch (e) {}
+    if (global.AppDayRest && typeof global.AppDayRest.syncState === "function") {
+      global.AppDayRest.syncState(store);
     }
   }
 
   function parseDateTimeToMs(dateStr, timeStr) {
     if (!dateStr || !timeStr) return null;
-    var dParts = dateStr.split("-");
-    var tParts = timeStr.split(":");
-    if (dParts.length !== 3 || tParts.length < 2) return null;
-    var y = Number(dParts[0]);
-    var m = Number(dParts[1]) - 1;
-    var d = Number(dParts[2]);
-    var hh = Number(tParts[0]);
-    var mm = Number(tParts[1]);
+    var dp = dateStr.split("-");
+    var tp = timeStr.split(":");
+    if (dp.length !== 3 || tp.length < 2) return null;
+    var y = Number(dp[0]);
+    var m = Number(dp[1]) - 1;
+    var d = Number(dp[2]);
+    var hh = Number(tp[0]);
+    var mm = Number(tp[1]);
     if ([y, m, d, hh, mm].some(function (n) { return Number.isNaN(n); })) return null;
     return new Date(y, m, d, hh, mm, 0, 0).getTime();
-  }
-
-  function getShiftRangeMs(shift) {
-    var s = parseDateTimeToMs(shift.startDate, shift.startTime);
-    var e = parseDateTimeToMs(shift.endDate, shift.endTime);
-    if (s === null || e === null) return null;
-    return { startMs: s, endMs: e };
   }
 
   function formatShortDate(dateStr) {
@@ -79,12 +70,25 @@
     return p[2] + "/" + p[1];
   }
 
-  function formatShiftRangeLabel(shift) {
-    var dir = shift.direction === "ARR" ? "ARR" : "DEP";
+  function formatFrameLabel(fr) {
+    var dir = fr.direction === "ARR" ? "ARR" : "DEP";
     return "[" + dir + "] " +
-      formatShortDate(shift.startDate) + " " + shift.startTime +
+      formatShortDate(fr.startDate) + " " + fr.startTime +
       " → " +
-      formatShortDate(shift.endDate) + " " + shift.endTime;
+      formatShortDate(fr.endDate) + " " + fr.endTime;
+  }
+
+  function formatSlotLabel(sl) {
+    return formatShortDate(sl.startDate) + " " + sl.startTime +
+      " → " +
+      formatShortDate(sl.endDate) + " " + sl.endTime;
+  }
+
+  function getFrameById(frameId) {
+    for (var i = 0; i < store.frames.length; i++) {
+      if (store.frames[i].id === frameId) return store.frames[i];
+    }
+    return null;
   }
 
   function getStaffNameById(staffId) {
@@ -95,42 +99,58 @@
     return "";
   }
 
-  function refreshShiftViews() {
-    renderShiftSelectorsAndCards();
+  function refreshAll() {
+    renderSelectorsAndCards();
     if (global.AppDayRest && typeof global.AppDayRest.renderDaySchedule === "function") {
       global.AppDayRest.renderDaySchedule();
     }
   }
 
-  function renderShiftSelectorsAndCards() {
-    initDefaultDateInputs();
-    var shifts = getShifts();
-    var staffList = (global.rosterState && global.rosterState.staffList) || [];
-
+  function renderSelectorsAndCards() {
+    initDefaultDates();
+    var frameSel = document.getElementById("slotFrameSelect");
     var slotSel = document.getElementById("assignSlotSelect");
     var staffSel = document.getElementById("assignStaffSelect");
     var container = document.getElementById("positionSlotsContainer");
+    var staffList = (global.rosterState && global.rosterState.staffList) || [];
+
+    if (frameSel) {
+      var prevFrame = frameSel.value;
+      frameSel.innerHTML = "";
+      for (var f = 0; f < store.frames.length; f++) {
+        var fr = store.frames[f];
+        var fOpt = document.createElement("option");
+        fOpt.value = fr.id;
+        fOpt.textContent = fr.name + " — " + formatFrameLabel(fr);
+        frameSel.appendChild(fOpt);
+      }
+      if (prevFrame) frameSel.value = prevFrame;
+      if (!frameSel.value && frameSel.options.length > 0) frameSel.value = frameSel.options[0].value;
+    }
 
     if (slotSel) {
-      var prevVal = slotSel.value;
+      var prevSlot = slotSel.value;
       slotSel.innerHTML = "";
-      for (var i = 0; i < shifts.length; i++) {
-        var opt = document.createElement("option");
-        opt.value = shifts[i].id;
-        opt.textContent = (shifts[i].position || "Ca làm việc") + " — " + formatShiftRangeLabel(shifts[i]);
-        slotSel.appendChild(opt);
+      for (var s = 0; s < store.slots.length; s++) {
+        var sl = store.slots[s];
+        var parentFr = getFrameById(sl.frameId);
+        var sOpt = document.createElement("option");
+        sOpt.value = sl.id;
+        sOpt.textContent = (parentFr ? "[" + (parentFr.direction || "DEP") + "] " + parentFr.name + " | " : "") +
+          sl.position + " (" + formatSlotLabel(sl) + ")";
+        slotSel.appendChild(sOpt);
       }
-      if (prevVal) slotSel.value = prevVal;
+      if (prevSlot) slotSel.value = prevSlot;
     }
 
     if (staffSel) {
       var prevStaff = staffSel.value;
       staffSel.innerHTML = "";
-      for (var j = 0; j < staffList.length; j++) {
-        var sOpt = document.createElement("option");
-        sOpt.value = staffList[j].id;
-        sOpt.textContent = (staffList[j].full_name || "") + " - " + Core.normalizeJobTitle(staffList[j]);
-        staffSel.appendChild(sOpt);
+      for (var i = 0; i < staffList.length; i++) {
+        var stOpt = document.createElement("option");
+        stOpt.value = staffList[i].id;
+        stOpt.textContent = (staffList[i].full_name || "") + " - " + Core.normalizeJobTitle(staffList[i]);
+        staffSel.appendChild(stOpt);
       }
       if (prevStaff) staffSel.value = prevStaff;
     }
@@ -138,105 +158,199 @@
     if (!container) return;
     container.innerHTML = "";
 
-    if (!shifts.length) {
-      container.innerHTML = "<div class='small-muted'>Chưa có ca làm việc nào được tạo. Hãy nhập vị trí, hướng DEP/ARR và khoảng ngày/giờ ở trên.</div>";
+    if (!store.frames.length && !store.slots.length) {
+      container.innerHTML = "<div class='small-muted'>Chưa có khung ca nào. Hãy tạo khung ca ở Bước 1 trước.</div>";
       return;
     }
 
-    for (var k = 0; k < shifts.length; k++) {
-      (function (sh) {
-        var card = document.createElement("div");
-        card.className = "slot-card";
+    for (var k = 0; k < store.frames.length; k++) {
+      (function (fr) {
+        var frameCard = document.createElement("div");
+        frameCard.className = "slot-card";
 
-        var head = document.createElement("div");
-        head.className = "slot-header";
+        var fHead = document.createElement("div");
+        fHead.className = "slot-header";
 
-        var titleEl = document.createElement("div");
-        titleEl.innerHTML = "<strong>" + sh.position + "</strong> <span class='small-muted'>(" +
-          formatShiftRangeLabel(sh) + ")</span>";
+        var fTitle = document.createElement("div");
+        fTitle.innerHTML = "<strong>Khung ca: " + fr.name + "</strong> <span class='small-muted'>(" +
+          formatFrameLabel(fr) + ")</span>";
 
-        var btnDel = document.createElement("button");
-        btnDel.type = "button";
-        btnDel.className = "btn-danger btn-sm";
-        btnDel.textContent = "Xóa ca";
-        btnDel.addEventListener("click", function () {
-          shiftsList = shiftsList.filter(function (item) { return item.id !== sh.id; });
-          saveShifts();
-          refreshShiftViews();
+        var btnDelFrame = document.createElement("button");
+        btnDelFrame.type = "button";
+        btnDelFrame.className = "btn-danger btn-sm";
+        btnDelFrame.textContent = "Xóa khung";
+        btnDelFrame.addEventListener("click", function () {
+          store.frames = store.frames.filter(function (x) { return x.id !== fr.id; });
+          store.slots = store.slots.filter(function (x) { return x.frameId !== fr.id; });
+          saveStore();
+          refreshAll();
         });
 
-        head.appendChild(titleEl);
-        head.appendChild(btnDel);
-        card.appendChild(head);
+        fHead.appendChild(fTitle);
+        fHead.appendChild(btnDelFrame);
+        frameCard.appendChild(fHead);
 
-        var chipsWrap = document.createElement("div");
-        var assigned = sh.staffIds || [];
-        if (!assigned.length) {
-          chipsWrap.innerHTML = "<span class='small-muted'>Chưa có nhân viên nào trong ca này.</span>";
+        var childSlots = store.slots.filter(function (x) { return x.frameId === fr.id; });
+        if (!childSlots.length) {
+          var emptyNote = document.createElement("div");
+          emptyNote.className = "small-muted";
+          emptyNote.textContent = "Chưa có ca con nào trong khung này.";
+          frameCard.appendChild(emptyNote);
         } else {
-          for (var a = 0; a < assigned.length; a++) {
-            (function (stId) {
-              var chip = document.createElement("span");
-              chip.className = "assigned-chip";
-              var txt = document.createElement("span");
-              txt.textContent = getStaffNameById(stId);
-              var xBtn = document.createElement("button");
-              xBtn.type = "button";
-              xBtn.textContent = "×";
-              xBtn.addEventListener("click", function () {
-                sh.staffIds = (sh.staffIds || []).filter(function (id) { return id !== stId; });
-                saveShifts();
-                refreshShiftViews();
+          for (var c = 0; c < childSlots.length; c++) {
+            (function (sl) {
+              var subBox = document.createElement("div");
+              subBox.style.marginTop = "8px";
+              subBox.style.padding = "8px 10px";
+              subBox.style.background = "#ffffff";
+              subBox.style.border = "1px solid #e2e8f0";
+              subBox.style.borderRadius = "6px";
+
+              var subTop = document.createElement("div");
+              subTop.className = "slot-header";
+              subTop.style.marginBottom = "4px";
+
+              var subLabel = document.createElement("div");
+              subLabel.innerHTML = "<strong>" + sl.position + "</strong> <span class='small-muted'>(" +
+                formatSlotLabel(sl) + ")</span>";
+
+              var btnDelSlot = document.createElement("button");
+              btnDelSlot.type = "button";
+              btnDelSlot.className = "btn-danger btn-sm";
+              btnDelSlot.textContent = "Xóa ca";
+              btnDelSlot.addEventListener("click", function () {
+                store.slots = store.slots.filter(function (x) { return x.id !== sl.id; });
+                saveStore();
+                refreshAll();
               });
-              chip.appendChild(txt);
-              chip.appendChild(xBtn);
-              chipsWrap.appendChild(chip);
-            })(assigned[a]);
+
+              subTop.appendChild(subLabel);
+              subTop.appendChild(btnDelSlot);
+              subBox.appendChild(subTop);
+
+              var chipsDiv = document.createElement("div");
+              var assigned = sl.staffIds || [];
+              if (!assigned.length) {
+                chipsDiv.innerHTML = "<span class='small-muted'>Chưa gán nhân viên.</span>";
+              } else {
+                for (var a = 0; a < assigned.length; a++) {
+                  (function (stId) {
+                    var chip = document.createElement("span");
+                    chip.className = "assigned-chip";
+                    var spanName = document.createElement("span");
+                    spanName.textContent = getStaffNameById(stId);
+                    var btnRemove = document.createElement("button");
+                    btnRemove.type = "button";
+                    btnRemove.textContent = "×";
+                    btnRemove.addEventListener("click", function () {
+                      sl.staffIds = (sl.staffIds || []).filter(function (id) { return id !== stId; });
+                      saveStore();
+                      refreshAll();
+                    });
+                    chip.appendChild(spanName);
+                    chip.appendChild(btnRemove);
+                    chipsDiv.appendChild(chip);
+                  })(assigned[a]);
+                }
+              }
+              subBox.appendChild(chipsDiv);
+              frameCard.appendChild(subBox);
+            })(childSlots[c]);
           }
         }
-        card.appendChild(chipsWrap);
-        container.appendChild(card);
-      })(shifts[k]);
+
+        container.appendChild(frameCard);
+      })(store.frames[k]);
     }
   }
 
-  var addForm = document.getElementById("addPositionSlotForm");
-  if (addForm) {
-    addForm.addEventListener("submit", function (e) {
+  var addFrameForm = document.getElementById("addShiftFrameForm");
+  if (addFrameForm) {
+    addFrameForm.addEventListener("submit", function (e) {
       e.preventDefault();
-      if (!Core.isShiftLeader()) return alert("Chỉ Ca trưởng mới được tạo ca làm việc.");
+      if (!Core.isShiftLeader()) return alert("Chỉ Ca trưởng mới được tạo khung ca.");
 
+      var name = document.getElementById("frameNameInput").value.trim();
+      var direction = document.getElementById("frameDirectionInput").value || "DEP";
+      var startDate = document.getElementById("frameStartDateInput").value;
+      var startTime = document.getElementById("frameStartTimeInput").value;
+      var endDate = document.getElementById("frameEndDateInput").value;
+      var endTime = document.getElementById("frameEndTimeInput").value;
+
+      var sMs = parseDateTimeToMs(startDate, startTime);
+      var eMs = parseDateTimeToMs(endDate, endTime);
+      if (!name || sMs === null || eMs === null || eMs <= sMs) {
+        return alert("Vui lòng nhập tên khung và khoảng ngày/giờ hợp lệ (kết thúc phải sau bắt đầu).");
+      }
+
+      var newFrame = {
+        id: "frame_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        name: name,
+        direction: direction,
+        startDate: startDate,
+        startTime: startTime,
+        endDate: endDate,
+        endTime: endTime
+      };
+      store.frames.push(newFrame);
+
+      // Đồng bộ mặc định ngày/giờ ca con theo khung vừa tạo
+      var sStartD = document.getElementById("slotStartDateInput");
+      var sEndD = document.getElementById("slotEndDateInput");
+      if (sStartD) sStartD.value = startDate;
+      if (sEndD) sEndD.value = endDate;
+
+      saveStore();
+      document.getElementById("frameNameInput").value = "";
+      refreshAll();
+      var frameSel = document.getElementById("slotFrameSelect");
+      if (frameSel) frameSel.value = newFrame.id;
+    });
+  }
+
+  var addSlotForm = document.getElementById("addPositionSlotForm");
+  if (addSlotForm) {
+    addSlotForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (!Core.isShiftLeader()) return alert("Chỉ Ca trưởng mới được tạo ca con.");
+
+      var frameId = document.getElementById("slotFrameSelect").value;
       var pos = document.getElementById("slotPositionInput").value.trim();
-      var direction = document.getElementById("slotDirectionInput").value || "DEP";
       var startDate = document.getElementById("slotStartDateInput").value;
       var startTime = document.getElementById("slotStartTimeInput").value;
       var endDate = document.getElementById("slotEndDateInput").value;
       var endTime = document.getElementById("slotEndTimeInput").value;
 
-      if (!pos || !startDate || !startTime || !endDate || !endTime) {
-        return alert("Vui lòng nhập đủ vị trí, hướng ca và thời gian bắt đầu/kết thúc.");
-      }
-
+      if (!frameId) return alert("Hãy tạo khung ca ở Bước 1 trước.");
+      var fr = getFrameById(frameId);
+      var frStart = fr ? parseDateTimeToMs(fr.startDate, fr.startTime) : null;
+      var frEnd = fr ? parseDateTimeToMs(fr.endDate, fr.endTime) : null;
       var sMs = parseDateTimeToMs(startDate, startTime);
       var eMs = parseDateTimeToMs(endDate, endTime);
-      if (sMs === null || eMs === null || eMs <= sMs) {
-        return alert("Thời gian kết thúc phải lớn hơn thời gian bắt đầu.");
+
+      if (!pos || sMs === null || eMs === null || eMs <= sMs) {
+        return alert("Vui lòng nhập vị trí/ca con và khoảng ngày/giờ hợp lệ.");
+      }
+      if (frStart !== null && frEnd !== null && (sMs < frStart || eMs > frEnd)) {
+        return alert("Thời gian ca con phải nằm trong khung ca [" + formatFrameLabel(fr) + "].");
       }
 
-      shiftsList.push({
-        id: "shift_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      var newSlot = {
+        id: "slot_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        frameId: frameId,
         position: pos,
-        direction: direction,
         startDate: startDate,
         startTime: startTime,
         endDate: endDate,
         endTime: endTime,
         staffIds: []
-      });
-
-      saveShifts();
+      };
+      store.slots.push(newSlot);
+      saveStore();
       document.getElementById("slotPositionInput").value = "";
-      refreshShiftViews();
+      refreshAll();
+      var slotSel = document.getElementById("assignSlotSelect");
+      if (slotSel) slotSel.value = newSlot.id;
     });
   }
 
@@ -244,14 +358,14 @@
   if (btnAddStaff) {
     btnAddStaff.addEventListener("click", function () {
       if (!Core.isShiftLeader()) return;
-      var shiftId = document.getElementById("assignSlotSelect").value;
+      var slotId = document.getElementById("assignSlotSelect").value;
       var staffId = document.getElementById("assignStaffSelect").value;
-      if (!shiftId || !staffId) return alert("Vui lòng tạo ca làm việc trước và chọn nhân viên.");
+      if (!slotId || !staffId) return alert("Hãy chọn ca con và nhân viên.");
 
       var target = null;
-      for (var i = 0; i < shiftsList.length; i++) {
-        if (shiftsList[i].id === shiftId) {
-          target = shiftsList[i];
+      for (var i = 0; i < store.slots.length; i++) {
+        if (store.slots[i].id === slotId) {
+          target = store.slots[i];
           break;
         }
       }
@@ -261,21 +375,20 @@
         target.staffIds.push(staffId);
       }
 
-      saveShifts();
-      refreshShiftViews();
+      saveStore();
+      refreshAll();
     });
   }
 
-  loadShiftsFromStorage();
-  initDefaultDateInputs();
+  loadStore();
+  initDefaultDates();
 
   global.AppDaySlots = {
-    getShifts: getShifts,
-    getDaySlots: getShifts,
-    saveShifts: saveShifts,
-    saveDaySlots: saveShifts,
-    getShiftRangeMs: getShiftRangeMs,
-    formatShiftRangeLabel: formatShiftRangeLabel,
-    renderPositionSlotSelectorsAndCards: renderShiftSelectorsAndCards
+    getStore: function () { return store; },
+    getFrameById: getFrameById,
+    parseDateTimeToMs: parseDateTimeToMs,
+    formatFrameLabel: formatFrameLabel,
+    formatSlotLabel: formatSlotLabel,
+    renderPositionSlotSelectorsAndCards: renderSelectorsAndCards
   };
 })(window);
