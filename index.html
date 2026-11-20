@@ -25,6 +25,15 @@
     .modal-card { background: #fff; padding: 18px; border-radius: 10px; width: 100%; max-width: 440px; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }
     .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
     .info-box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; background: #f8fafc; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .stat-card { background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #0f4c81; border-radius: 8px; padding: 10px 12px; }
+    .stat-card.new-staff { border-left-color: #0284c7; }
+    .stat-card.old-staff { border-left-color: #059669; }
+    .stat-card.work-day { border-left-color: #16a34a; }
+    .stat-card.off-day { border-left-color: #dc2626; }
+    .stat-label { font-size: 0.78rem; color: #64748b; }
+    .stat-value { font-size: 1.35rem; font-weight: 700; color: #0f172a; margin-top: 2px; }
+    .team-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; margin-top: 6px; background: #f8fafc; }
   </style>
 </head>
 <body>
@@ -52,7 +61,7 @@
   <div id="changePassModal" class="modal-backdrop">
     <div class="modal-card">
       <h3>Đổi Mật Khẩu</h3>
-      <p class="small-muted" id="changePassHint">Bạn đang dùng mật khẩu mặc định. Vui lòng đặt mật khẩu mới để tiếp tục.</p>
+      <p class="small-muted" id="changePassHint">Bạn đang dùng mật khẩu mặc định. Vui lòng đổi mật khẩu mới để tiếp tục.</p>
       <form id="changePassForm" style="margin-top:10px;">
         <div class="form-group">
           <label>Mật khẩu mới</label>
@@ -70,7 +79,7 @@
     </div>
   </div>
 
-  <!-- Modal Ca trưởng sửa thông tin nhân viên (Chức danh, Tổ nhóm ca...) -->
+  <!-- Modal Ca trưởng sửa thông tin nhân viên -->
   <div id="editStaffModal" class="modal-backdrop">
     <div class="modal-card">
       <h3>Sửa Thông Tin Nhân Viên</h3>
@@ -93,10 +102,7 @@
         </div>
         <div class="form-group">
           <label>Tổ / Nhóm ca</label>
-          <select id="editShiftGroup">
-            <option value="1">Tổ 1</option>
-            <option value="2">Tổ 2</option>
-          </select>
+          <select id="editShiftGroup"></select>
         </div>
         <div class="form-group">
           <label>Vai trò hệ thống</label>
@@ -108,6 +114,28 @@
         <div class="action-btns">
           <button type="submit" class="btn-success">Cập nhật</button>
           <button type="button" id="btnCloseEditModal" class="btn-danger">Hủy</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Ca trưởng sửa Tổ / Nhóm -->
+  <div id="editTeamModal" class="modal-backdrop">
+    <div class="modal-card">
+      <h3>Sửa Thông Tin Tổ / Nhóm</h3>
+      <form id="editTeamForm" style="margin-top:10px;">
+        <input type="hidden" id="editTeamId" />
+        <div class="form-group">
+          <label>Tên tổ / nhóm</label>
+          <input type="text" id="editTeamName" required />
+        </div>
+        <div class="form-group">
+          <label>Ghi chú ca trực</label>
+          <input type="text" id="editTeamNote" placeholder="VD: Ca sáng / Khu vực A" />
+        </div>
+        <div class="action-btns">
+          <button type="submit" class="btn-success">Lưu tổ</button>
+          <button type="button" id="btnCloseTeamModal" class="btn-danger">Hủy</button>
         </div>
       </form>
     </div>
@@ -125,6 +153,30 @@
       </div>
     </header>
 
+    <!-- THỐNG KÊ NHANH TRÊN PANEL -->
+    <div class="stats-grid" id="panelStatsGrid">
+      <div class="stat-card">
+        <div class="stat-label">Tổng số nhân viên</div>
+        <div class="stat-value" id="statTotalStaff">0</div>
+      </div>
+      <div class="stat-card new-staff">
+        <div class="stat-label">Nhân viên mới</div>
+        <div class="stat-value" id="statNewStaff">0</div>
+      </div>
+      <div class="stat-card old-staff">
+        <div class="stat-label">Nhân viên cũ</div>
+        <div class="stat-value" id="statOldStaff">0</div>
+      </div>
+      <div class="stat-card work-day">
+        <div class="stat-label">Đi làm trong ngày</div>
+        <div class="stat-value" id="statWorkToday">0</div>
+      </div>
+      <div class="stat-card off-day">
+        <div class="stat-label">OFF trong ngày</div>
+        <div class="stat-value" id="statOffToday">0</div>
+      </div>
+    </div>
+
     <div class="tab-bar">
       <button type="button" class="tab-btn active" data-tab="tabStaff" id="tabBtn1">1. Thông tin nhân sự</button>
       <button type="button" class="tab-btn" data-tab="tabDay" id="tabBtn2">2. Cắt lịch trong ngày</button>
@@ -133,6 +185,24 @@
 
     <!-- TAB 1: THÔNG TIN NHÂN SỰ / THÔNG TIN CÁ NHÂN -->
     <section id="tabStaff" class="tab-panel active">
+      <div id="teamManageCard" class="card">
+        <h2>Quản Lý Tổ / Nhóm Ca</h2>
+        <form id="addTeamForm" class="form-row">
+          <div>
+            <label>Tên tổ / nhóm mới</label>
+            <input type="text" id="newTeamName" placeholder="VD: Tổ 3" required />
+          </div>
+          <div>
+            <label>Ghi chú</label>
+            <input type="text" id="newTeamNote" placeholder="VD: Ca chiều / Sảnh đi" />
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button type="submit" class="btn-primary">+ Thêm tổ / nhóm</button>
+          </div>
+        </form>
+        <div id="teamListContainer" style="margin-top:10px;"></div>
+      </div>
+
       <div id="staffFormCard" class="card">
         <h2>Thêm Nhân Viên Mới</h2>
         <form id="staffForm">
@@ -156,10 +226,7 @@
           <div class="form-row">
             <div>
               <label>Tổ / Nhóm ca</label>
-              <select id="shiftGroupInput">
-                <option value="1">Tổ 1</option>
-                <option value="2">Tổ 2</option>
-              </select>
+              <select id="shiftGroupInput"></select>
             </div>
             <div>
               <label>Vai trò hệ thống</label>
