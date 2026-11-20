@@ -1,71 +1,37 @@
-// =========================================================================
-// [COMPONENT: js/stats-role.js] THỐNG KÊ TỔNG QUAN & PHÂN QUYỀN VAI TRÒ
-// Tính: Tổng số NV, NV học viện, NV chính thức, Đi làm trong ngày, OFF trong ngày.
-// =========================================================================
 (function (global) {
   var Core = global.AppCore;
 
   function getStaffArray() {
     var rs = global.rosterState;
-    if (rs && Array.isArray(rs.staffList) && rs.staffList.length > 0) return rs.staffList;
-    if (rs && Array.isArray(rs.staffs) && rs.staffs.length > 0) return rs.staffs;
-    if (Array.isArray(global.staffList) && global.staffList.length > 0) return global.staffList;
-    return (rs && Array.isArray(rs.staffList)) ? rs.staffList : [];
+    if (rs && Array.isArray(rs.staffList)) return rs.staffList;
+    if (Array.isArray(global.staffList)) return global.staffList;
+    return [];
   }
 
-  function isOffDay(staffId, rec, dateStr) {
-    var rs = global.rosterState || {};
-    var leaves = rs.leavesByStaff || {};
-
-    if (leaves[staffId] || (dateStr && leaves[staffId + "_" + dateStr])) {
-      return true;
-    }
-
-    if (Array.isArray(rs.leaves)) {
-      for (var i = 0; i < rs.leaves.length; i++) {
-        var lv = rs.leaves[i];
-        if (lv && lv.staff_id === staffId && lv.status !== "rejected") {
-          if (!dateStr || !lv.leave_date || lv.leave_date === dateStr) {
-            return true;
-          }
-        }
-      }
-    }
-
-    if (rec && (rec.is_day_off === true || rec.duty_type === "OFF")) {
-      return true;
-    }
-
-    return false;
-  }
-
-  function getRosterForStaffDate(staffId, dateStr) {
+  function getRosterRecord(staffId, dateStr) {
     var rs = global.rosterState || {};
     var map = rs.rostersByStaff || {};
-
     if (map[staffId]) return map[staffId];
     if (dateStr && map[staffId + "_" + dateStr]) return map[staffId + "_" + dateStr];
-
-    if (Array.isArray(rs.dailyRosters)) {
-      for (var i = 0; i < rs.dailyRosters.length; i++) {
-        var r = rs.dailyRosters[i];
-        if (r && r.staff_id === staffId && (!dateStr || !r.shift_date || r.shift_date === dateStr)) {
-          return r;
-        }
-      }
-    }
-
     if (typeof global.getOrCreateRoster === "function") {
       return global.getOrCreateRoster(staffId, dateStr);
     }
     return null;
   }
 
+  function isOffDay(staffId, rec, dateStr) {
+    var rs = global.rosterState || {};
+    var leaves = rs.leavesByStaff || {};
+    if (leaves[staffId] || (dateStr && leaves[staffId + "_" + dateStr])) return true;
+    if (rec && (rec.is_day_off === true || rec.duty_type === "OFF")) return true;
+    return false;
+  }
+
   function renderPanelStats() {
     var allStaff = getStaffArray();
     var total = allStaff.length;
-    var officialCount = 0; // Nhân viên chính thức
-    var traineeCount = 0;  // Nhân viên học viện
+    var officialCount = 0;
+    var traineeCount = 0;
     var offTodayCount = 0;
     var date = Core && typeof Core.getSelectedDate === "function" ? Core.getSelectedDate() : "";
 
@@ -75,16 +41,11 @@
         ? Core.normalizeJobTitle(s)
         : (s.job_title || "Học việc");
 
-      if (title === "Chính thức") {
-        officialCount++;
-      } else {
-        traineeCount++;
-      }
+      if (title === "Chính thức") officialCount++;
+      else traineeCount++;
 
-      var rec = getRosterForStaffDate(s.id, date);
-      if (isOffDay(s.id, rec, date)) {
-        offTodayCount++;
-      }
+      var rec = getRosterRecord(s.id, date);
+      if (isOffDay(s.id, rec, date)) offTodayCount++;
     }
 
     var workTodayCount = Math.max(0, total - offTodayCount);
@@ -102,11 +63,9 @@
     if (elOff) elOff.textContent = String(offTodayCount);
   }
 
-  // Tải trực tiếp từ Supabase nếu rosterState.staffList đang rỗng để đảm bảo thống kê không bị 0
   function refreshStatsWithFallback() {
     renderPanelStats();
-    var currentList = getStaffArray();
-    if (currentList.length > 0 || !Core || typeof Core.getClient !== "function") {
+    if (getStaffArray().length > 0 || !Core || typeof Core.getClient !== "function") {
       return Promise.resolve();
     }
 
@@ -114,46 +73,39 @@
     if (!client) return Promise.resolve();
 
     var date = Core.getSelectedDate();
-    if (!global.rosterState) {
-      global.rosterState = {
-        staffList: [],
-        rostersByStaff: {},
-        leavesByStaff: {},
-        monthRosters: [],
-        monthLeaves: [],
-        monthShiftDirs: {}
-      };
-    }
+    global.rosterState = global.rosterState || {
+      staffList: [],
+      rostersByStaff: {},
+      leavesByStaff: {},
+      monthRosters: [],
+      monthLeaves: [],
+      monthShiftDirs: {}
+    };
 
     return Promise.all([
       client.from("profiles").select("*").eq("is_active", true).order("employee_code", { ascending: true }),
       client.from("daily_rosters").select("*").eq("shift_date", date),
       client.from("leave_requests").select("*").eq("leave_date", date).neq("status", "rejected")
-    ]).then(function (results) {
-      var profRes = results[0];
-      var rostRes = results[1];
-      var leaveRes = results[2];
+    ]).then(function (res) {
+      var profRes = res[0];
+      var rostRes = res[1];
+      var leaveRes = res[2];
 
-      if (!profRes.error && Array.isArray(profRes.data) && profRes.data.length > 0) {
+      if (!profRes.error && Array.isArray(profRes.data)) {
         global.rosterState.staffList = profRes.data;
       }
-
       if (!rostRes.error && Array.isArray(rostRes.data)) {
         global.rosterState.rostersByStaff = global.rosterState.rostersByStaff || {};
         for (var i = 0; i < rostRes.data.length; i++) {
-          var r = rostRes.data[i];
-          global.rosterState.rostersByStaff[r.staff_id] = r;
+          global.rosterState.rostersByStaff[rostRes.data[i].staff_id] = rostRes.data[i];
         }
       }
-
       if (!leaveRes.error && Array.isArray(leaveRes.data)) {
         global.rosterState.leavesByStaff = global.rosterState.leavesByStaff || {};
         for (var j = 0; j < leaveRes.data.length; j++) {
-          var lv = leaveRes.data[j];
-          global.rosterState.leavesByStaff[lv.staff_id] = lv;
+          global.rosterState.leavesByStaff[leaveRes.data[j].staff_id] = leaveRes.data[j];
         }
       }
-
       renderPanelStats();
     }).catch(function () {
       renderPanelStats();
