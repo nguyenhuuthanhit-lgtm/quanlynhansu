@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Quan Ly Nhan Su &amp; Ca Truc San Bay</title>
+  <title>Quản Lý Nhân Sự &amp; Ca Trực Sân Bay</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -17,6 +17,10 @@
     .day-work { background: #e0f2fe; color: #0369a1; }
     .day-off { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
     .small-muted { font-size: 0.8rem; color: #64748b; }
+    .action-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: none; align-items: center; justify-content: center; z-index: 999; padding: 14px; }
+    .modal-backdrop.open { display: flex; }
+    .modal-card { background: #fff; padding: 18px; border-radius: 10px; width: 100%; max-width: 440px; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }
   </style>
 </head>
 <body>
@@ -24,17 +28,90 @@
 
   <div id="loginSection" class="auth-wrapper" style="display:flex;">
     <div class="card auth-card">
-      <h2>Dang Nhap He Thong Ca Truc San Bay</h2>
+      <h2>Đăng Nhập Hệ Thống Ca Trực</h2>
       <form id="loginForm">
         <div class="form-group">
-          <label>Email</label>
-          <input type="email" id="loginEmail" required placeholder="catruong@gmail.com" />
+          <label>Mã nhân viên (hoặc Email Ca trưởng)</label>
+          <input type="text" id="loginUserInput" required placeholder="VD: 123456 hoặc NV012" />
         </div>
         <div class="form-group">
-          <label>Mat khau</label>
-          <input type="password" id="loginPassword" required placeholder="••••••••" />
+          <label>Mật khẩu (mặc định: 12345)</label>
+          <input type="password" id="loginPasswordInput" required placeholder="12345" />
         </div>
-        <button type="submit" class="btn-primary w-100">Dang nhap</button>
+        <button type="submit" class="btn-primary w-100">Đăng nhập</button>
+      </form>
+      <div id="loginMsg" class="small-muted" style="margin-top:10px; text-align:center;"></div>
+    </div>
+  </div>
+
+  <!-- Modal đổi mật khẩu (bắt buộc ở lần đăng nhập đầu nếu dùng MK mặc định) -->
+  <div id="changePassModal" class="modal-backdrop">
+    <div class="modal-card">
+      <h3>Đổi Mật Khẩu</h3>
+      <p class="small-muted" id="changePassHint">Bạn đang dùng mật khẩu mặc định. Vui lòng đặt mật khẩu mới để tiếp tục.</p>
+      <form id="changePassForm" style="margin-top:10px;">
+        <div class="form-group">
+          <label>Mật khẩu mới</label>
+          <input type="password" id="newPassInput" required minlength="4" placeholder="Nhập mật khẩu mới" />
+        </div>
+        <div class="form-group">
+          <label>Nhập lại mật khẩu mới</label>
+          <input type="password" id="confirmPassInput" required minlength="4" placeholder="Nhập lại mật khẩu mới" />
+        </div>
+        <div class="action-btns">
+          <button type="submit" class="btn-primary">Lưu mật khẩu mới</button>
+          <button type="button" id="btnClosePassModal" class="btn-warning">Đóng</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal sửa thông tin nhân viên -->
+  <div id="editStaffModal" class="modal-backdrop">
+    <div class="modal-card">
+      <h3>Sửa Thông Tin Nhân Viên</h3>
+      <form id="editStaffForm" style="margin-top:10px;">
+        <input type="hidden" id="editStaffId" />
+        <div class="form-group">
+          <label>Mã NV</label>
+          <input type="text" id="editEmpCode" required />
+        </div>
+        <div class="form-group">
+          <label>Họ và tên</label>
+          <input type="text" id="editFullName" required />
+        </div>
+        <div class="form-group">
+          <label>Chức danh / Kinh nghiệm</label>
+          <select id="editJobTitle">
+            <option value="Học việc">Học việc</option>
+            <option value="Chính thức">Chính thức</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Tổ / Nhóm ca</label>
+          <select id="editShiftGroup">
+            <option value="1">Tổ 1</option>
+            <option value="2">Tổ 2</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Hướng ca mặc định</label>
+          <select id="editBaseShift">
+            <option value="DEP">DEP (Chuyến đi)</option>
+            <option value="ARR">ARR (Chuyến đến)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Vai trò</label>
+          <select id="editRole">
+            <option value="staff">Nhân viên (staff)</option>
+            <option value="shift_leader">Ca trưởng (shift_leader)</option>
+          </select>
+        </div>
+        <div class="action-btns">
+          <button type="submit" class="btn-success">Cập nhật</button>
+          <button type="button" id="btnCloseEditModal" class="btn-danger">Hủy</button>
+        </div>
       </form>
     </div>
   </div>
@@ -42,80 +119,83 @@
   <div id="appSection" class="container" style="display: none;">
     <header class="topbar">
       <div>
-        <h1>Dieu Hanh Nhan Su &amp; Lich Ca Truc</h1>
+        <h1>Điều Hành Nhân Sự &amp; Lịch Ca Trực</h1>
         <small id="currentUserInfo"></small>
       </div>
       <div class="topbar-actions">
-        <button id="btnLogout" class="btn-danger btn-sm">Dang xuat</button>
+        <button type="button" id="btnOpenChangePass" class="btn-warning btn-sm">Đổi mật khẩu</button>
+        <button type="button" id="btnLogout" class="btn-danger btn-sm">Đăng xuất</button>
       </div>
     </header>
 
     <div class="tab-bar">
-      <button type="button" class="tab-btn active" data-tab="tabStaff">1. Thong tin nhan su</button>
-      <button type="button" class="tab-btn" data-tab="tabDay">2. Cat lich trong ngay</button>
-      <button type="button" class="tab-btn" data-tab="tabMonth">3. Cat lich trong thang</button>
+      <button type="button" class="tab-btn active" data-tab="tabStaff">1. Thông tin nhân sự</button>
+      <button type="button" class="tab-btn" data-tab="tabDay">2. Cắt lịch trong ngày</button>
+      <button type="button" class="tab-btn" data-tab="tabMonth">3. Cắt lịch trong tháng</button>
     </div>
 
-    <!-- TAB 1: THONG TIN NHAN SU -->
+    <!-- TAB 1: THÔNG TIN NHÂN SỰ -->
     <section id="tabStaff" class="tab-panel active">
-      <div class="card">
-        <h2>Them Nhan Vien Moi</h2>
+      <div id="staffFormCard" class="card">
+        <h2>Thêm Nhân Viên Mới</h2>
         <form id="staffForm">
           <div class="form-row">
             <div>
-              <label>Ma NV</label>
+              <label>Mã NV</label>
               <input type="text" id="empCode" placeholder="VD: NV012" required />
             </div>
             <div>
-              <label>Ho va ten</label>
-              <input type="text" id="fullName" placeholder="VD: Tran Minh Quan" required />
+              <label>Họ và tên</label>
+              <input type="text" id="fullName" placeholder="VD: Trần Minh Quân" required />
             </div>
             <div>
-              <label>Chuc danh / Kinh nghiem</label>
-              <select id="empLevel" required>
-                <option value="0.5">Hoc viec (&lt; 1 nam)</option>
-                <option value="4">Lam chinh (3-5 nam)</option>
+              <label>Chức danh / Kinh nghiệm</label>
+              <select id="empJobTitle" required>
+                <option value="Học việc">Học việc</option>
+                <option value="Chính thức">Chính thức</option>
               </select>
             </div>
           </div>
           <div class="form-row">
             <div>
-              <label>To / Nhom ca (shift_group)</label>
+              <label>Tổ / Nhóm ca</label>
               <select id="shiftGroupInput">
-                <option value="1">To 1</option>
-                <option value="2">To 2</option>
+                <option value="1">Tổ 1</option>
+                <option value="2">Tổ 2</option>
               </select>
             </div>
             <div>
-              <label>Huong ca mac dinh (base_shift_type)</label>
+              <label>Hướng ca mặc định (DEP / ARR)</label>
               <select id="baseShiftInput">
-                <option value="DEP">DEP (Di)</option>
-                <option value="ARR">ARR (Den)</option>
+                <option value="DEP">DEP (Chuyến đi)</option>
+                <option value="ARR">ARR (Chuyến đến)</option>
               </select>
             </div>
             <div>
-              <label>Vai tro he thong</label>
+              <label>Vai trò hệ thống</label>
               <select id="roleInput">
-                <option value="staff">Nhan vien (staff)</option>
-                <option value="shift_leader">Ca truong (shift_leader)</option>
+                <option value="staff">Nhân viên (staff)</option>
+                <option value="shift_leader">Ca trưởng (shift_leader)</option>
               </select>
             </div>
           </div>
-          <button type="submit" class="btn-primary">+ Luu nhan vien</button>
+          <button type="submit" class="btn-primary">+ Lưu nhân viên (MK mặc định: 12345)</button>
         </form>
       </div>
 
       <div class="card">
-        <h2>Danh Sach Nhan Su</h2>
+        <h2>Danh Sách Nhân Sự</h2>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Ma NV</th>
-                <th>Ten nhan su</th>
-                <th>Chuc danh</th>
-                <th>To ca</th>
-                <th>Huong ca</th>
+                <th>Mã NV</th>
+                <th>Tên nhân sự</th>
+                <th>Chức danh</th>
+                <th>Tổ ca</th>
+                <th>Hướng ca</th>
+                <th>MK đầu</th>
+                <th>Thao tác</th>
               </tr>
             </thead>
             <tbody id="staffListBody"></tbody>
@@ -124,33 +204,33 @@
       </div>
     </section>
 
-    <!-- TAB 2: CAT LICH TRONG NGAY -->
+    <!-- TAB 2: CẮT LỊCH TRONG NGÀY -->
     <section id="tabDay" class="tab-panel">
       <div class="card">
         <div class="section-head">
-          <h2>Cat Lich Trong Ngay</h2>
+          <h2>Cắt Lịch Trong Ngày</h2>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input type="date" id="workDate" />
-            <button type="button" id="btnSaveAllRosters" class="btn-success">Luu lich ngay</button>
+            <button type="button" id="btnSaveAllRosters" class="btn-success">Lưu lịch ngày</button>
           </div>
         </div>
 
         <div class="form-row" style="margin-top:10px;">
           <div>
-            <label>Chon nhan su cat nghi</label>
+            <label>Chọn nhân sự cắt nghỉ</label>
             <select id="offStaffSelect"></select>
           </div>
           <div>
-            <label>Nghi tu gio</label>
+            <label>Nghỉ từ giờ</label>
             <input type="time" id="offStart" />
           </div>
           <div>
-            <label>Den gio</label>
+            <label>Đến giờ</label>
             <input type="time" id="offEnd" />
           </div>
           <div style="display:flex; align-items:flex-end; gap:6px; flex-wrap:wrap;">
-            <button type="button" id="btnCutTimeOff" class="btn-warning">Cat gio nghi</button>
-            <button type="button" id="btnCutDayOff" class="btn-danger">Cat OFF ca ngay</button>
+            <button type="button" id="btnCutTimeOff" class="btn-warning">Cắt giờ nghỉ</button>
+            <button type="button" id="btnCutDayOff" class="btn-danger">Cắt OFF cả ngày</button>
           </div>
         </div>
       </div>
@@ -160,12 +240,12 @@
           <table>
             <thead>
               <tr>
-                <th>Ten nhan su</th>
-                <th>Chuc danh</th>
-                <th>Thoi gian lam</th>
-                <th>Vi tri</th>
-                <th>Thoi gian nghi</th>
-                <th>Thao tac</th>
+                <th>Tên nhân sự</th>
+                <th>Chức danh</th>
+                <th>Thời gian làm</th>
+                <th>Vị trí</th>
+                <th>Thời gian nghỉ</th>
+                <th>Thao tác</th>
               </tr>
             </thead>
             <tbody id="scheduleBody"></tbody>
@@ -174,17 +254,17 @@
       </div>
     </section>
 
-    <!-- TAB 3: CAT LICH TRONG THANG -->
+    <!-- TAB 3: CẮT LỊCH TRONG THÁNG -->
     <section id="tabMonth" class="tab-panel">
       <div class="card">
         <div class="section-head">
-          <h2>Cat Lich Trong Thang</h2>
+          <h2>Cắt Lịch Trong Tháng</h2>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input type="month" id="workMonth" />
-            <button type="button" id="btnReloadMonth" class="btn-primary btn-sm">Tai lai thang</button>
+            <button type="button" id="btnReloadMonth" class="btn-primary btn-sm">Tải lại tháng</button>
           </div>
         </div>
-        <p class="small-muted" style="margin-top:6px;">Bam vao tung ngay (01..31) de chuyen doi nhanh giua <strong>Ngay lam</strong> (xanh) va <strong>Ngay OFF</strong> (do), tu dong luu vao lich thang.</p>
+        <p class="small-muted" style="margin-top:6px;">Bấm vào từng ngày (01..31) để chuyển đổi nhanh giữa <strong>Ngày làm</strong> (xanh) và <strong>Ngày OFF</strong> (đỏ).</p>
       </div>
 
       <div class="card">
@@ -192,10 +272,10 @@
           <table>
             <thead>
               <tr>
-                <th>Ten nhan su</th>
-                <th>Chuc danh</th>
-                <th>Ngay lam</th>
-                <th>Ngay OFF</th>
+                <th>Tên nhân sự</th>
+                <th>Chức danh</th>
+                <th>Ngày làm</th>
+                <th>Ngày OFF</th>
               </tr>
             </thead>
             <tbody id="monthScheduleBody"></tbody>
@@ -210,12 +290,11 @@
       var box = document.getElementById("globalErrorBox");
       if (box) {
         box.style.display = "block";
-        box.textContent = "Loi JS: " + e.message + " (" + (e.filename || "") + ":" + e.lineno + ")";
+        box.textContent = "Lỗi JS: " + e.message + " (" + (e.filename || "") + ":" + e.lineno + ")";
       }
     });
   </script>
   <script src="config.js"></script>
-  <script src="auth-rbac.js"></script>
   <script src="scheduler.js"></script>
   <script src="app.js"></script>
 </body>
