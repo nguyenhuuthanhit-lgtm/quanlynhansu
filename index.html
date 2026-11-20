@@ -289,26 +289,26 @@
     </section>
 
     <!-- [C.5] TAB 2: CẮT LỊCH TRONG NGÀY THEO VỊ TRÍ & KHUNG GIỜ -->
-        <!-- =====================================================================
-         [C.5] TAB 2: TẠO CA LÀM VIỆC (TỪ NGÀY/GIỜ ĐẾN NGÀY/GIỜ + DEP/ARR)
-         ===================================================================== -->
+       
     <section id="tabDay" class="tab-panel">
       <div class="card">
         <div class="section-head">
-          <h2 id="daySectionTitle">Tạo Ca Làm Việc &amp; Phân Vị Trí</h2>
-          <div class="small-muted">Tự động lưu khi tạo ca hoặc thêm/bỏ nhân viên</div>
+          <h2 id="daySectionTitle">Khung Ca Làm Việc &amp; Phân Ca</h2>
+          <div class="small-muted">Tự động tính khoảng nghỉ trong khung ca &amp; tự lưu</div>
         </div>
 
         <div id="dayCutControls" style="margin-top:12px;">
-          <form id="addPositionSlotForm" style="margin-bottom:14px;">
+          <!-- BƯỚC 1: TẠO KHUNG CA TỔNG (VD: 20/11 08:00 -> 21/11 08:00, DEP/ARR) -->
+          <form id="addShiftFrameForm" style="margin-bottom:14px; padding:12px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
+            <h3 style="margin-bottom:8px;">1. Tạo khung ca làm việc</h3>
             <div class="form-row">
               <div>
-                <label>Vị trí làm việc</label>
-                <input type="text" id="slotPositionInput" placeholder="VD: Vị trí A / Cửa soi 1" required />
+                <label>Tên khung ca / Vị trí</label>
+                <input type="text" id="frameNameInput" placeholder="VD: Ca 24h Cửa soi 1 / Khu A" required />
               </div>
               <div>
                 <label>Hướng ca</label>
-                <select id="slotDirectionInput" class="inline-select" style="width:100%; padding:8px;">
+                <select id="frameDirectionInput" class="inline-select" style="width:100%; padding:8px;">
                   <option value="DEP">DEP (Khởi hành)</option>
                   <option value="ARR">ARR (Hạ cánh)</option>
                 </select>
@@ -318,28 +318,64 @@
             <div class="form-row">
               <div>
                 <label>Từ ngày</label>
-                <input type="date" id="slotStartDateInput" required />
+                <input type="date" id="frameStartDateInput" required />
               </div>
               <div>
                 <label>Từ giờ</label>
-                <input type="time" id="slotStartTimeInput" value="08:00" required />
+                <input type="time" id="frameStartTimeInput" value="08:00" required />
               </div>
               <div>
                 <label>Đến ngày</label>
-                <input type="date" id="slotEndDateInput" required />
+                <input type="date" id="frameEndDateInput" required />
               </div>
               <div>
                 <label>Đến giờ</label>
-                <input type="time" id="slotEndTimeInput" value="08:00" required />
+                <input type="time" id="frameEndTimeInput" value="08:00" required />
               </div>
             </div>
 
-            <button type="submit" class="btn-primary">+ Tạo ca làm việc</button>
+            <button type="submit" class="btn-primary">+ Tạo khung ca</button>
+          </form>
+
+          <!-- BƯỚC 2: TẠO CA LÀM VIỆC CON TRONG KHUNG CA & GÁN NHÂN VIÊN -->
+          <form id="addPositionSlotForm" style="margin-bottom:14px; padding:12px; border:1px solid #cbd5e1; border-radius:8px; background:#ffffff;">
+            <h3 style="margin-bottom:8px;">2. Tạo ca con trong khung &amp; thêm nhân viên</h3>
+            <div class="form-row">
+              <div>
+                <label>Thuộc khung ca</label>
+                <select id="slotFrameSelect"></select>
+              </div>
+              <div>
+                <label>Vị trí / Tên ca con</label>
+                <input type="text" id="slotPositionInput" placeholder="VD: Ca sáng / Soi 1" required />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div>
+                <label>Bắt đầu ngày</label>
+                <input type="date" id="slotStartDateInput" required />
+              </div>
+              <div>
+                <label>Bắt đầu giờ</label>
+                <input type="time" id="slotStartTimeInput" value="08:00" required />
+              </div>
+              <div>
+                <label>Kết thúc ngày</label>
+                <input type="date" id="slotEndDateInput" required />
+              </div>
+              <div>
+                <label>Kết thúc giờ</label>
+                <input type="time" id="slotEndTimeInput" value="12:00" required />
+              </div>
+            </div>
+
+            <button type="submit" class="btn-primary">+ Thêm ca con vào khung</button>
           </form>
 
           <div class="form-row">
             <div>
-              <label>Chọn ca làm việc đã tạo</label>
+              <label>Chọn ca con đã tạo</label>
               <select id="assignSlotSelect"></select>
             </div>
             <div>
@@ -357,15 +393,15 @@
       </div>
 
       <div class="card">
-        <h3>Tổng Hợp Ca Làm Việc, Hướng Ca &amp; Thời Gian Nghỉ Tại Chỗ</h3>
+        <h3>Tổng Hợp Ca Làm Việc, Hướng Ca &amp; Thời Gian Nghỉ Trong Khung</h3>
         <div class="table-wrap" style="margin-top:8px;">
           <table>
             <thead>
               <tr>
                 <th>Tên nhân sự</th>
                 <th>Chức danh</th>
-                <th>Ca làm việc &amp; Hướng (DEP/ARR)</th>
-                <th>Thời gian nghỉ tại chỗ</th>
+                <th>Khung ca &amp; Ca làm việc (DEP/ARR)</th>
+                <th>Thời gian nghỉ (tính đến hết khung)</th>
               </tr>
             </thead>
             <tbody id="scheduleBody"></tbody>
