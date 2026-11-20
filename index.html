@@ -34,6 +34,10 @@
     .stat-label { font-size: 0.78rem; color: #64748b; }
     .stat-value { font-size: 1.35rem; font-weight: 700; color: #0f172a; margin-top: 2px; }
     .team-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; margin-top: 6px; background: #f8fafc; }
+    .slot-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 10px; background: #f8fafc; }
+    .slot-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .assigned-chip { display: inline-flex; align-items: center; gap: 6px; background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; padding: 4px 8px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; margin: 2px; }
+    .assigned-chip button { border: none; background: transparent; color: #b91c1c; font-weight: 700; cursor: pointer; padding: 0 2px; }
   </style>
 </head>
 <body>
@@ -190,11 +194,11 @@
         <form id="addTeamForm" class="form-row">
           <div>
             <label>Tên tổ / nhóm mới</label>
-            <input type="text" id="newTeamName" placeholder="VD: Tổ 3" required />
+            <input type="text" id="newTeamName" placeholder="VD: Đội An Ninh Sảnh Đi" required />
           </div>
           <div>
             <label>Ghi chú</label>
-            <input type="text" id="newTeamNote" placeholder="VD: Ca chiều / Sảnh đi" />
+            <input type="text" id="newTeamNote" placeholder="VD: Ca sáng / Khu vực A" />
           </div>
           <div style="display:flex; align-items:flex-end;">
             <button type="submit" class="btn-primary">+ Thêm tổ / nhóm</button>
@@ -265,7 +269,7 @@
       </div>
     </section>
 
-    <!-- TAB 2: CẮT LỊCH TRONG NGÀY / VỊ TRÍ TRONG NGÀY -->
+    <!-- TAB 2: CẮT LỊCH TRONG NGÀY (THEO VỊ TRÍ LÀM VIỆC & KHUNG THỜI GIAN) -->
     <section id="tabDay" class="tab-panel">
       <div class="card">
         <div class="section-head">
@@ -276,37 +280,56 @@
           </div>
         </div>
 
-        <div id="dayCutControls" class="form-row" style="margin-top:10px;">
-          <div>
-            <label>Chọn nhân sự cắt nghỉ</label>
-            <select id="offStaffSelect"></select>
+        <!-- Khối Ca trưởng tạo Vị trí làm việc + Khoảng thời gian làm & thêm nhân sự -->
+        <div id="dayCutControls" style="margin-top:12px;">
+          <form id="addPositionSlotForm" class="form-row" style="margin-bottom:12px;">
+            <div>
+              <label>Vị trí làm việc</label>
+              <input type="text" id="slotPositionInput" placeholder="VD: Vị trí A / Cửa soi 1" required />
+            </div>
+            <div>
+              <label>Giờ bắt đầu làm</label>
+              <input type="time" id="slotStartInput" value="06:00" required />
+            </div>
+            <div>
+              <label>Giờ kết thúc làm</label>
+              <input type="time" id="slotEndInput" value="12:00" required />
+            </div>
+            <div style="display:flex; align-items:flex-end;">
+              <button type="submit" class="btn-primary">+ Thêm vị trí &amp; khung giờ</button>
+            </div>
+          </form>
+
+          <div class="form-row">
+            <div>
+              <label>Chọn vị trí &amp; khung giờ</label>
+              <select id="assignSlotSelect"></select>
+            </div>
+            <div>
+              <label>Chọn nhân viên thêm vào vị trí</label>
+              <select id="assignStaffSelect"></select>
+            </div>
+            <div style="display:flex; align-items:flex-end; gap:6px; flex-wrap:wrap;">
+              <button type="button" id="btnAddStaffToSlot" class="btn-success">+ Thêm nhân viên vào vị trí</button>
+              <button type="button" id="btnCutDayOff" class="btn-danger">Cắt OFF cả ngày</button>
+            </div>
           </div>
-          <div>
-            <label>Nghỉ từ giờ</label>
-            <input type="time" id="offStart" />
-          </div>
-          <div>
-            <label>Đến giờ</label>
-            <input type="time" id="offEnd" />
-          </div>
-          <div style="display:flex; align-items:flex-end; gap:6px; flex-wrap:wrap;">
-            <button type="button" id="btnCutTimeOff" class="btn-warning">Cắt giờ nghỉ</button>
-            <button type="button" id="btnCutDayOff" class="btn-danger">Cắt OFF cả ngày</button>
-          </div>
+
+          <div id="positionSlotsContainer" style="margin-top:14px;"></div>
         </div>
       </div>
 
+      <!-- Bảng tổng hợp Vị trí làm việc, Khung giờ & Thời gian nghỉ ngơi từng nhân viên -->
       <div class="card">
-        <div class="table-wrap">
+        <h3>Tổng Hợp Vị Trí Làm Việc &amp; Thời Gian Nghỉ Ngơi Của Nhân Viên</h3>
+        <div class="table-wrap" style="margin-top:8px;">
           <table>
             <thead>
               <tr>
                 <th>Tên nhân sự</th>
                 <th>Chức danh</th>
-                <th>Thời gian làm</th>
-                <th>Vị trí</th>
-                <th>Thời gian nghỉ</th>
-                <th id="dayActionHeader">Thao tác</th>
+                <th>Vị trí &amp; Khung giờ làm việc</th>
+                <th>Thời gian nghỉ ngơi</th>
               </tr>
             </thead>
             <tbody id="scheduleBody"></tbody>
