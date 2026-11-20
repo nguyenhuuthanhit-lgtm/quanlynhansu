@@ -48,6 +48,70 @@
     return Boolean(window.currentStaff && window.currentStaff.role === "shift_leader");
   }
 
+  function getVisibleStaffList() {
+    var all = (window.rosterState && window.rosterState.staffList) || [];
+    if (isShiftLeader()) return all;
+    if (!window.currentStaff) return [];
+    return all.filter(function (s) {
+      return s.id === window.currentStaff.id;
+    });
+  }
+
+  function getMonthShiftDir(staff, ym) {
+    var map = (window.rosterState && window.rosterState.monthShiftDirs) || {};
+    if (map[staff.id]) return map[staff.id];
+    return staff.base_shift_type || "DEP";
+  }
+
+  function setMonthShiftDir(staff, ym, dir) {
+    if (!window.rosterState.monthShiftDirs) window.rosterState.monthShiftDirs = {};
+    window.rosterState.monthShiftDirs[staff.id] = dir;
+    try {
+      localStorage.setItem("monthShiftDirs_" + ym, JSON.stringify(window.rosterState.monthShiftDirs));
+    } catch (e) {}
+
+    var client = getClient();
+    if (client && isShiftLeader()) {
+      client.from("profiles").update({ base_shift_type: dir }).eq("id", staff.id).then(function () {});
+    }
+  }
+
+  function applyRoleLabelsAndVisibility() {
+    var leader = isShiftLeader();
+
+    var tabBtn1 = document.getElementById("tabBtn1");
+    var tabBtn2 = document.getElementById("tabBtn2");
+    var tabBtn3 = document.getElementById("tabBtn3");
+    if (tabBtn1) tabBtn1.textContent = leader ? "1. Thông tin nhân sự" : "1. Thông tin cá nhân";
+    if (tabBtn2) tabBtn2.textContent = leader ? "2. Cắt lịch trong ngày" : "2. Vị trí trong ngày";
+    if (tabBtn3) tabBtn3.textContent = leader ? "3. Cắt lịch trong tháng" : "3. Lịch làm / OFF trong tháng";
+
+    var formCard = document.getElementById("staffFormCard");
+    var myCard = document.getElementById("myPersonalCard");
+    var staffTableCard = document.getElementById("staffTableCard");
+    if (formCard) formCard.style.display = leader ? "block" : "none";
+    if (myCard) myCard.style.display = leader ? "none" : "block";
+    if (staffTableCard) staffTableCard.style.display = leader ? "block" : "none";
+
+    var dayTitle = document.getElementById("daySectionTitle");
+    var dayControls = document.getElementById("dayCutControls");
+    var btnSaveAll = document.getElementById("btnSaveAllRosters");
+    var dayActHdr = document.getElementById("dayActionHeader");
+    if (dayTitle) dayTitle.textContent = leader ? "Cắt Lịch Trong Ngày" : "Vị Trí Trong Ngày";
+    if (dayControls) dayControls.style.display = leader ? "flex" : "none";
+    if (btnSaveAll) btnSaveAll.style.display = leader ? "inline-block" : "none";
+    if (dayActHdr) dayActHdr.style.display = leader ? "" : "none";
+
+    var monthTitle = document.getElementById("monthSectionTitle");
+    var monthHint = document.getElementById("monthHintText");
+    if (monthTitle) monthTitle.textContent = leader ? "Cắt Lịch Trong Tháng" : "Lịch Làm / OFF Trong Tháng";
+    if (monthHint) {
+      monthHint.textContent = leader
+        ? "Chọn Hướng ca (DEP / ARR) cho từng nhân sự trong tháng và bấm vào từng ngày (01..31) để chuyển giữa Ngày làm (xanh) và Ngày OFF (đỏ)."
+        : "Xem hướng ca (DEP / ARR), danh sách ngày làm và ngày OFF của bạn trong tháng.";
+    }
+  }
+
   function setLoginMsg(msg, isErr) {
     var el = document.getElementById("loginMsg");
     if (!el) return;
@@ -75,10 +139,7 @@
       infoEl.textContent = (staffRec.employee_code || "") + " - " + (staffRec.full_name || "") + " (" + roleLabel + ")";
     }
 
-    var formCard = document.getElementById("staffFormCard");
-    if (formCard) {
-      formCard.style.display = isShiftLeader() ? "block" : "none";
-    }
+    applyRoleLabelsAndVisibility();
 
     window.loadDashboardData().then(function () {
       if (staffRec.must_change_password) {
@@ -87,7 +148,6 @@
     });
   }
 
-  // Đăng nhập bằng Mã NV + mật khẩu (mặc định 12345)
   var loginForm = document.getElementById("loginForm");
   if (loginForm) {
     loginForm.addEventListener("submit", function (e) {
@@ -142,7 +202,6 @@
     });
   }
 
-  // Đổi mật khẩu (lần đầu hoặc chủ động đổi)
   var passModal = document.getElementById("changePassModal");
   function openChangePassModal(hintText) {
     var hintEl = document.getElementById("changePassHint");
@@ -201,7 +260,6 @@
     });
   }
 
-  // Chuyển đổi 3 tab
   var tabButtons = document.querySelectorAll(".tab-btn");
   var tabPanels = document.querySelectorAll(".tab-panel");
   for (var t = 0; t < tabButtons.length; t++) {
@@ -231,6 +289,7 @@
       : Promise.resolve();
 
     return task.then(function () {
+      renderMyPersonalCard();
       renderStaffList();
       renderStaffDropdown();
       renderDaySchedule();
@@ -261,7 +320,18 @@
     return td;
   }
 
-  // TAB 1: THÔNG TIN NHÂN SỰ (Thêm / Sửa / Xóa / Reset MK 12345)
+  function renderMyPersonalCard() {
+    var grid = document.getElementById("myPersonalGrid");
+    var s = window.currentStaff;
+    if (!grid || !s) return;
+    grid.innerHTML =
+      '<div class="info-box"><div class="small-muted">Mã nhân viên</div><strong>' + (s.employee_code || "") + '</strong></div>' +
+      '<div class="info-box"><div class="small-muted">Họ và tên</div><strong>' + (s.full_name || "") + '</strong></div>' +
+      '<div class="info-box"><div class="small-muted">Chức danh</div><strong>' + normalizeJobTitle(s) + '</strong></div>' +
+      '<div class="info-box"><div class="small-muted">Tổ / Nhóm ca</div><strong>Tổ ' + (s.shift_group || 1) + '</strong></div>';
+  }
+
+  // TAB 1: THÔNG TIN NHÂN SỰ (Ca trưởng thêm, sửa chức danh & tổ ca, xóa, reset 12345)
   var editModal = document.getElementById("editStaffModal");
   var btnCloseEditModal = document.getElementById("btnCloseEditModal");
   if (btnCloseEditModal) {
@@ -276,7 +346,6 @@
     document.getElementById("editFullName").value = staff.full_name || "";
     document.getElementById("editJobTitle").value = normalizeJobTitle(staff);
     document.getElementById("editShiftGroup").value = String(staff.shift_group || 1);
-    document.getElementById("editBaseShift").value = staff.base_shift_type || "DEP";
     document.getElementById("editRole").value = staff.role || "staff";
     if (editModal) editModal.classList.add("open");
   }
@@ -293,7 +362,6 @@
       var name = document.getElementById("editFullName").value.trim();
       var jobTitle = document.getElementById("editJobTitle").value;
       var group = Number(document.getElementById("editShiftGroup").value || 1);
-      var baseShift = document.getElementById("editBaseShift").value || "DEP";
       var role = document.getElementById("editRole").value || "staff";
 
       client
@@ -304,7 +372,6 @@
           job_title: jobTitle,
           experience_years: expFromJobTitle(jobTitle),
           shift_group: group,
-          base_shift_type: baseShift,
           role: role
         })
         .eq("id", id)
@@ -333,7 +400,6 @@
         tr.appendChild(makeTextCell(s.full_name || "", false));
         tr.appendChild(makeTextCell(normalizeJobTitle(s), false));
         tr.appendChild(makeTextCell("Tổ " + (s.shift_group || 1), false));
-        tr.appendChild(makeTextCell(s.base_shift_type || "DEP", false));
         tr.appendChild(makeTextCell(s.must_change_password ? "Chưa đổi" : "Đã đổi", false));
 
         var actTd = document.createElement("td");
@@ -406,7 +472,6 @@
       var name = document.getElementById("fullName").value.trim();
       var jobTitle = document.getElementById("empJobTitle").value;
       var group = Number(document.getElementById("shiftGroupInput").value || 1);
-      var baseShift = document.getElementById("baseShiftInput").value || "DEP";
       var role = document.getElementById("roleInput").value || "staff";
 
       if (!code || !name) return alert("Nhập đủ Mã NV và Tên nhân sự");
@@ -419,7 +484,7 @@
           job_title: jobTitle,
           experience_years: expFromJobTitle(jobTitle),
           shift_group: group,
-          base_shift_type: baseShift,
+          base_shift_type: "DEP",
           role: role,
           auth_password: "12345",
           must_change_password: true,
@@ -436,7 +501,7 @@
     });
   }
 
-  // TAB 2: CẮT LỊCH TRONG NGÀY
+  // TAB 2: CẮT LỊCH TRONG NGÀY (Ca trưởng chỉnh sửa; Nhân viên chỉ xem vị trí / nghỉ ngơi tại chỗ / OFF)
   function isOffDay(staffId, rec) {
     var leaves = (window.rosterState && window.rosterState.leavesByStaff) || {};
     return Boolean((rec && rec.is_day_off) || leaves[staffId]);
@@ -457,13 +522,31 @@
     }
   }
 
+  function formatPositionsSummary(rec, off) {
+    if (off) return "OFF cả ngày";
+    var parts = [];
+    if (rec.shift_1) parts.push("Ca 1: " + rec.shift_1);
+    if (rec.shift_2) parts.push("Ca 2: " + rec.shift_2);
+    var extra = rec.extra_shifts || [];
+    for (var i = 0; i < extra.length; i++) {
+      if (extra[i]) parts.push("Ca " + (i + 3) + ": " + extra[i]);
+    }
+    var slots = rec.break_off_slots || [];
+    if (slots.length && !parts.length) {
+      return "Nghỉ ngơi tại chỗ (" + slots.join(", ") + ")";
+    }
+    if (!parts.length) return "Nghỉ ngơi tại chỗ";
+    return parts.join(" | ");
+  }
+
   function renderDaySchedule() {
     var tbody = document.getElementById("scheduleBody");
     if (!tbody || !window.rosterState) return;
     tbody.innerHTML = "";
 
+    var leader = isShiftLeader();
     var date = getSelectedDate();
-    var list = window.rosterState.staffList || [];
+    var list = getVisibleStaffList();
 
     for (var i = 0; i < list.length; i++) {
       (function (staff) {
@@ -475,66 +558,74 @@
         tr.appendChild(makeTextCell(normalizeJobTitle(staff), false));
 
         var timeTd = document.createElement("td");
-        var timeInput = document.createElement("input");
-        timeInput.type = "text";
-        timeInput.value = off ? "OFF" : (rec.work_hours || "06:00-18:00");
-        timeInput.disabled = off;
-        timeInput.style.width = "120px";
-        timeInput.addEventListener("change", function () {
-          rec.work_hours = timeInput.value;
-        });
-        timeTd.appendChild(timeInput);
+        if (leader) {
+          var timeInput = document.createElement("input");
+          timeInput.type = "text";
+          timeInput.value = off ? "OFF" : (rec.work_hours || "06:00-18:00");
+          timeInput.disabled = off;
+          timeInput.style.width = "120px";
+          timeInput.addEventListener("change", function () {
+            rec.work_hours = timeInput.value;
+          });
+          timeTd.appendChild(timeInput);
+        } else {
+          timeTd.textContent = off ? "OFF" : (rec.work_hours || "06:00-18:00");
+        }
         tr.appendChild(timeTd);
 
         var posTd = document.createElement("td");
-        var s1 = document.createElement("input");
-        s1.type = "text";
-        s1.placeholder = "Ca 1";
-        s1.value = rec.shift_1 || "";
-        s1.disabled = off;
-        s1.style.width = "95px";
-        s1.style.marginRight = "4px";
-        s1.addEventListener("change", function () { rec.shift_1 = s1.value; });
+        if (leader) {
+          var s1 = document.createElement("input");
+          s1.type = "text";
+          s1.placeholder = "Vị trí Ca 1 (A, B...)";
+          s1.value = rec.shift_1 || "";
+          s1.disabled = off;
+          s1.style.width = "110px";
+          s1.style.marginRight = "4px";
+          s1.addEventListener("change", function () { rec.shift_1 = s1.value; });
 
-        var s2 = document.createElement("input");
-        s2.type = "text";
-        s2.placeholder = "Ca 2";
-        s2.value = rec.shift_2 || "";
-        s2.disabled = off;
-        s2.style.width = "95px";
-        s2.style.marginRight = "4px";
-        s2.addEventListener("change", function () { rec.shift_2 = s2.value; });
+          var s2 = document.createElement("input");
+          s2.type = "text";
+          s2.placeholder = "Vị trí Ca 2 (A, B...)";
+          s2.value = rec.shift_2 || "";
+          s2.disabled = off;
+          s2.style.width = "110px";
+          s2.style.marginRight = "4px";
+          s2.addEventListener("change", function () { rec.shift_2 = s2.value; });
 
-        posTd.appendChild(s1);
-        posTd.appendChild(s2);
+          posTd.appendChild(s1);
+          posTd.appendChild(s2);
 
-        var extraArr = rec.extra_shifts || [];
-        for (var j = 0; j < extraArr.length; j++) {
-          (function (idx) {
-            var ex = document.createElement("input");
-            ex.type = "text";
-            ex.placeholder = "Ca " + (idx + 3);
-            ex.value = extraArr[idx] || "";
-            ex.disabled = off;
-            ex.style.width = "85px";
-            ex.style.marginLeft = "4px";
-            ex.addEventListener("change", function () { rec.extra_shifts[idx] = ex.value; });
-            posTd.appendChild(ex);
-          })(j);
+          var extraArr = rec.extra_shifts || [];
+          for (var j = 0; j < extraArr.length; j++) {
+            (function (idx) {
+              var ex = document.createElement("input");
+              ex.type = "text";
+              ex.placeholder = "Ca " + (idx + 3);
+              ex.value = extraArr[idx] || "";
+              ex.disabled = off;
+              ex.style.width = "90px";
+              ex.style.marginLeft = "4px";
+              ex.addEventListener("change", function () { rec.extra_shifts[idx] = ex.value; });
+              posTd.appendChild(ex);
+            })(j);
+          }
+
+          var addBtn = document.createElement("button");
+          addBtn.type = "button";
+          addBtn.className = "btn-primary btn-sm";
+          addBtn.textContent = "+ Ca";
+          addBtn.disabled = off;
+          addBtn.style.marginLeft = "4px";
+          addBtn.addEventListener("click", function () {
+            if (!Array.isArray(rec.extra_shifts)) rec.extra_shifts = [];
+            rec.extra_shifts.push("");
+            renderDaySchedule();
+          });
+          posTd.appendChild(addBtn);
+        } else {
+          posTd.textContent = formatPositionsSummary(rec, off);
         }
-
-        var addBtn = document.createElement("button");
-        addBtn.type = "button";
-        addBtn.className = "btn-primary btn-sm";
-        addBtn.textContent = "+ Ca";
-        addBtn.disabled = off;
-        addBtn.style.marginLeft = "4px";
-        addBtn.addEventListener("click", function () {
-          if (!Array.isArray(rec.extra_shifts)) rec.extra_shifts = [];
-          rec.extra_shifts.push("");
-          renderDaySchedule();
-        });
-        posTd.appendChild(addBtn);
         tr.appendChild(posTd);
 
         var restTd = document.createElement("td");
@@ -549,20 +640,22 @@
         }
         tr.appendChild(restTd);
 
-        var actTd = document.createElement("td");
-        var btnOff = document.createElement("button");
-        btnOff.type = "button";
-        btnOff.className = "btn-warning btn-sm";
-        btnOff.textContent = off ? "Mở làm lại" : "Cắt OFF";
-        btnOff.addEventListener("click", function () {
-          rec.is_day_off = !rec.is_day_off;
-          var p = (typeof window.upsertSingleRoster === "function")
-            ? window.upsertSingleRoster(rec)
-            : Promise.resolve();
-          p.then(renderDaySchedule);
-        });
-        actTd.appendChild(btnOff);
-        tr.appendChild(actTd);
+        if (leader) {
+          var actTd = document.createElement("td");
+          var btnOff = document.createElement("button");
+          btnOff.type = "button";
+          btnOff.className = "btn-warning btn-sm";
+          btnOff.textContent = off ? "Mở làm lại" : "Cắt OFF";
+          btnOff.addEventListener("click", function () {
+            rec.is_day_off = !rec.is_day_off;
+            var p = (typeof window.upsertSingleRoster === "function")
+              ? window.upsertSingleRoster(rec)
+              : Promise.resolve();
+            p.then(renderDaySchedule);
+          });
+          actTd.appendChild(btnOff);
+          tr.appendChild(actTd);
+        }
 
         tbody.appendChild(tr);
       })(list[i]);
@@ -572,6 +665,7 @@
   var btnCutTimeOff = document.getElementById("btnCutTimeOff");
   if (btnCutTimeOff) {
     btnCutTimeOff.addEventListener("click", function () {
+      if (!isShiftLeader()) return;
       var client = getClient();
       if (!client) return;
       var staffId = document.getElementById("offStaffSelect").value;
@@ -595,6 +689,7 @@
   var btnCutDayOff = document.getElementById("btnCutDayOff");
   if (btnCutDayOff) {
     btnCutDayOff.addEventListener("click", function () {
+      if (!isShiftLeader()) return;
       var client = getClient();
       if (!client) return;
       var staffId = document.getElementById("offStaffSelect").value;
@@ -626,6 +721,7 @@
   var btnSaveAll = document.getElementById("btnSaveAllRosters");
   if (btnSaveAll) {
     btnSaveAll.addEventListener("click", function () {
+      if (!isShiftLeader()) return;
       var mapObj = (window.rosterState && window.rosterState.rostersByStaff) || {};
       var keys = Object.keys(mapObj);
       var chain = Promise.resolve();
@@ -652,19 +748,20 @@
     });
   }
 
-  // TAB 3: CẮT LỊCH TRONG THÁNG
+  // TAB 3: CẮT LỊCH TRONG THÁNG (Hướng ca DEP/ARR tại tháng + Ngày làm / Ngày OFF)
   function renderMonthSchedule() {
     var tbody = document.getElementById("monthScheduleBody");
     if (!tbody || !window.rosterState) return;
     tbody.innerHTML = "";
 
+    var leader = isShiftLeader();
     var ym = getSelectedMonth();
     var parts = ym.split("-");
     var y = Number(parts[0]);
     var m = Number(parts[1]);
     var totalDays = new Date(y, m, 0).getDate();
 
-    var staffList = window.rosterState.staffList || [];
+    var staffList = getVisibleStaffList();
     var mRosters = window.rosterState.monthRosters || [];
     var mLeaves = window.rosterState.monthLeaves || [];
 
@@ -703,26 +800,29 @@
 
             var chip = document.createElement("button");
             chip.type = "button";
-            chip.className = "day-chip " + (isOff ? "day-off" : "day-work");
+            chip.className = "day-chip " + (isOff ? "day-off" : "day-work") + (leader ? "" : " readonly");
             chip.textContent = dd;
             chip.title = fullDate + (isOff ? " (OFF)" : " (Làm)");
-            chip.addEventListener("click", function () {
-              var client = getClient();
-              if (!client) return;
-              var nextOff = !isOff;
-              client
-                .from("daily_rosters")
-                .upsert({
-                  staff_id: staff.id,
-                  shift_date: fullDate,
-                  duty_type: nextOff ? "OFF" : "NORMAL",
-                  is_day_off: nextOff
-                }, { onConflict: "staff_id,shift_date" })
-                .then(function (res) {
-                  if (res.error) return alert("Lỗi cập nhật ngày: " + res.error.message);
-                  loadMonthTab();
-                });
-            });
+
+            if (leader) {
+              chip.addEventListener("click", function () {
+                var client = getClient();
+                if (!client) return;
+                var nextOff = !isOff;
+                client
+                  .from("daily_rosters")
+                  .upsert({
+                    staff_id: staff.id,
+                    shift_date: fullDate,
+                    duty_type: nextOff ? "OFF" : "NORMAL",
+                    is_day_off: nextOff
+                  }, { onConflict: "staff_id,shift_date" })
+                  .then(function (res) {
+                    if (res.error) return alert("Lỗi cập nhật ngày: " + res.error.message);
+                    loadMonthTab();
+                  });
+              });
+            }
             box.appendChild(chip);
           })(d);
         }
@@ -730,6 +830,30 @@
         var tr = document.createElement("tr");
         tr.appendChild(makeTextCell(staff.full_name || "", true));
         tr.appendChild(makeTextCell(normalizeJobTitle(staff), false));
+
+        // Cột Hướng ca (DEP / ARR) đặt tại cắt lịch tháng
+        var dirTd = document.createElement("td");
+        var currentDir = getMonthShiftDir(staff, ym);
+        if (leader) {
+          var selDir = document.createElement("select");
+          selDir.className = "inline-select";
+          var optDep = document.createElement("option");
+          optDep.value = "DEP";
+          optDep.textContent = "DEP";
+          var optArr = document.createElement("option");
+          optArr.value = "ARR";
+          optArr.textContent = "ARR";
+          selDir.appendChild(optDep);
+          selDir.appendChild(optArr);
+          selDir.value = currentDir;
+          selDir.addEventListener("change", function () {
+            setMonthShiftDir(staff, ym, selDir.value);
+          });
+          dirTd.appendChild(selDir);
+        } else {
+          dirTd.textContent = currentDir;
+        }
+        tr.appendChild(dirTd);
 
         var workTd = document.createElement("td");
         workTd.innerHTML = "<strong>" + workDays.length + " ngày</strong><br><span class='small-muted'>" +
@@ -755,7 +879,6 @@
     workMonthEl.addEventListener("change", loadMonthTab);
   }
 
-  // Tự khôi phục phiên đăng nhập nếu đã lưu trong sessionStorage
   document.addEventListener("DOMContentLoaded", function () {
     var client = getClient();
     var savedId = sessionStorage.getItem("loggedInStaffId");
