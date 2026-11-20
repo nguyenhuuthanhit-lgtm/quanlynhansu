@@ -51,7 +51,6 @@
   </style>
 </head>
 <body>
-  <!-- Khung hiển thị lỗi JavaScript toàn cục để dễ debug -->
   <div id="globalErrorBox" style="display:none; background:#fee2e2; color:#991b1b; padding:10px; margin:10px; border-radius:6px; font-size:0.85rem;"></div>
 
   <!-- =====================================================================
@@ -163,7 +162,6 @@
        [PHẦN C] GIAO DIỆN ỨNG DỤNG CHÍNH SAU KHI ĐĂNG NHẬP
        ===================================================================== -->
   <div id="appSection" class="container" style="display: none;">
-    <!-- [C.1] Thanh tiêu đề & nút tài khoản -->
     <header class="topbar">
       <div>
         <h1>Điều Hành Nhân Sự &amp; Lịch Ca Trực</h1>
@@ -175,14 +173,13 @@
       </div>
     </header>
 
-    <!-- [C.2] 5 thẻ thống kê tổng quan -->
     <div class="stats-grid" id="panelStatsGrid">
       <div class="stat-card">
         <div class="stat-label">Tổng số nhân viên</div>
         <div class="stat-value" id="statTotalStaff">0</div>
       </div>
       <div class="stat-card new-staff">
-        <div class="stat-label">Nhân viên học việc</div>
+        <div class="stat-label">Nhân viên học viện</div>
         <div class="stat-value" id="statNewStaff">0</div>
       </div>
       <div class="stat-card old-staff">
@@ -199,17 +196,15 @@
       </div>
     </div>
 
-    <!-- [C.3] Thanh điều hướng 3 tab -->
     <div class="tab-bar">
       <button type="button" class="tab-btn active" data-tab="tabStaff" id="tabBtn1">1. Thông tin nhân sự</button>
       <button type="button" class="tab-btn" data-tab="tabDay" id="tabBtn2">2. Cắt lịch trong ngày</button>
       <button type="button" class="tab-btn" data-tab="tabMonth" id="tabBtn3">3. Cắt lịch trong tháng</button>
     </div>
 
-    <!-- [C.4] TAB 1: QUẢN LÝ TỔ, THÊM NHÂN VIÊN & DANH SÁCH NHÂN SỰ -->
     <section id="tabStaff" class="tab-panel active">
       <div id="teamManageCard" class="card">
-        <h2>Quản Lý Ca </h2>
+        <h2>Quản Lý Ca</h2>
         <form id="addTeamForm" class="form-row">
           <div>
             <label>Tên tổ / nhóm mới</label>
@@ -288,7 +283,6 @@
       </div>
     </section>
 
-    <!-- [C.5] TAB 2: CẮT LỊCH TRONG NGÀY THEO VỊ TRÍ & KHUNG GIỜ -->
     <section id="tabDay" class="tab-panel">
       <div class="card">
         <div class="section-head">
@@ -355,7 +349,6 @@
       </div>
     </section>
 
-    <!-- [C.6] TAB 3: CẮT LỊCH TRONG THÁNG -->
     <section id="tabMonth" class="tab-panel">
       <div class="card">
         <div class="section-head">
