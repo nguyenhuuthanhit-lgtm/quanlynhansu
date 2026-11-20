@@ -1,5 +1,7 @@
 // =========================================================================
-// [COMPONENT: js/day-slots.js] KHUNG VỊ TRÍ & KHOẢNG THỜI GIAN TRONG NGÀY
+// [COMPONENT: js/day-slots.js] KHUNG VỊ TRÍ & KHUNG GIỜ (HỖ TRỢ XUYÊN NGÀY)
+// Hỗ trợ ca 24h (08:00 -> 08:00 hôm sau), ca đêm (18:00 -> 06:00 sáng),
+// và nhiều khung sáng / tối trong ngày.
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
@@ -25,6 +27,42 @@
     if (global.AppDayRest && global.AppDayRest.syncSlotsToRosters) {
       global.AppDayRest.syncSlotsToRosters(dateStr);
     }
+  }
+
+  function setDaySlots(dateStr, slots) {
+    daySlotsByDate[dateStr] = Array.isArray(slots) ? slots : [];
+    saveDaySlots(dateStr);
+  }
+
+  function toMins(hhmm) {
+    if (!hhmm || hhmm.indexOf(":") === -1) return null;
+    var p = hhmm.split(":");
+    var h = Number(p[0]);
+    var m = Number(p[1]);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+  }
+
+  // Tính khoảng phút [startMin, endMin] tính từ 00:00 của ngày chọn.
+  // Nếu endMin <= startMin (ví dụ 18:00 -> 06:00 hoặc ca 24h 08:00 -> 08:00),
+  // tự hiểu kết thúc sang ngày hôm sau (+1440 phút).
+  function getSlotRangeMinutes(slot) {
+    var s = toMins(slot.start);
+    var e = toMins(slot.end);
+    if (s === null || e === null) return null;
+    var crossesMidnight = Boolean(slot.nextDay) || (e <= s);
+    var adjEnd = crossesMidnight ? (e + 1440) : e;
+    return {
+      startMin: s,
+      endMin: adjEnd,
+      crossesMidnight: crossesMidnight
+    };
+  }
+
+  function formatSlotRangeLabel(slot) {
+    var rng = getSlotRangeMinutes(slot);
+    var suffix = (rng && rng.crossesMidnight) ? " (+1 ngày)" : "";
+    return slot.start + " - " + slot.end + suffix;
   }
 
   function getStaffNameById(staffId) {
@@ -57,7 +95,7 @@
       for (var i = 0; i < slots.length; i++) {
         var opt = document.createElement("option");
         opt.value = slots[i].id;
-        opt.textContent = slots[i].position + " (" + slots[i].start + " - " + slots[i].end + ")";
+        opt.textContent = slots[i].position + " (" + formatSlotRangeLabel(slots[i]) + ")";
         slotSel.appendChild(opt);
       }
       if (prevSlot) slotSel.value = prevSlot;
@@ -91,15 +129,15 @@
 
         var titleEl = document.createElement("div");
         titleEl.innerHTML = "<strong>" + slot.position + "</strong> <span class='small-muted'>(" +
-          slot.start + " - " + slot.end + ")</span>";
+          formatSlotRangeLabel(slot) + ")</span>";
 
         var btnDelSlot = document.createElement("button");
         btnDelSlot.type = "button";
         btnDelSlot.className = "btn-danger btn-sm";
         btnDelSlot.textContent = "Xóa khung";
         btnDelSlot.addEventListener("click", function () {
-          daySlotsByDate[date] = getDaySlots(date).filter(function (item) { return item.id !== slot.id; });
-          saveDaySlots(date);
+          var nextSlots = getDaySlots(date).filter(function (item) { return item.id !== slot.id; });
+          setDaySlots(date, nextSlots);
           refreshDayViews();
         });
 
@@ -147,7 +185,12 @@
       var start = document.getElementById("slotStartInput").value;
       var end = document.getElementById("slotEndInput").value;
       var date = Core.getSelectedDate();
+
       if (!pos || !start || !end) return alert("Nhập đủ vị trí làm việc và khoảng thời gian làm.");
+
+      var sMin = toMins(start);
+      var eMin = toMins(end);
+      var nextDay = (sMin !== null && eMin !== null && eMin <= sMin);
 
       var slots = getDaySlots(date);
       slots.push({
@@ -155,6 +198,7 @@
         position: pos,
         start: start,
         end: end,
+        nextDay: nextDay,
         staffIds: []
       });
       saveDaySlots(date);
@@ -189,6 +233,9 @@
   global.AppDaySlots = {
     getDaySlots: getDaySlots,
     saveDaySlots: saveDaySlots,
+    setDaySlots: setDaySlots,
+    getSlotRangeMinutes: getSlotRangeMinutes,
+    formatSlotRangeLabel: formatSlotRangeLabel,
     renderPositionSlotSelectorsAndCards: renderPositionSlotSelectorsAndCards
   };
 })(window);
