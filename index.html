@@ -6,25 +6,34 @@
   <title>Quản Lý Nhân Sự &amp; Ca Trực Sân Bay</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- =====================================================================
+       [PHẦN A] CSS GIAO DIỆN CHUNG (TAB, MODAL, THỐNG KÊ, KHUNG CA TRỰC)
+       ===================================================================== -->
   <style>
     .tab-bar { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
     .tab-btn { padding: 9px 16px; border: 1px solid #cbd5e1; background: #f8fafc; color: #0f172a; border-radius: 6px; cursor: pointer; font-weight: 600; }
     .tab-btn.active { background: #0f4c81; color: #fff; border-color: #0f4c81; }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
+
     .month-days-box { display: flex; flex-wrap: wrap; gap: 4px; max-width: 340px; }
     .day-chip { width: 28px; height: 28px; font-size: 0.75rem; border-radius: 4px; border: 1px solid #cbd5e1; cursor: pointer; font-weight: 600; }
     .day-chip.readonly { cursor: default; opacity: 0.92; }
     .day-work { background: #e0f2fe; color: #0369a1; }
     .day-off { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
+
     .small-muted { font-size: 0.8rem; color: #64748b; }
     .action-btns { display: flex; gap: 4px; flex-wrap: wrap; }
     .inline-select { padding: 4px 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 0.85rem; }
+
     .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: none; align-items: center; justify-content: center; z-index: 999; padding: 14px; }
     .modal-backdrop.open { display: flex; }
     .modal-card { background: #fff; padding: 18px; border-radius: 10px; width: 100%; max-width: 440px; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }
+
     .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
     .info-box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; background: #f8fafc; }
+
     .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; margin-bottom: 14px; }
     .stat-card { background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #0f4c81; border-radius: 8px; padding: 10px 12px; }
     .stat-card.new-staff { border-left-color: #0284c7; }
@@ -33,6 +42,7 @@
     .stat-card.off-day { border-left-color: #dc2626; }
     .stat-label { font-size: 0.78rem; color: #64748b; }
     .stat-value { font-size: 1.35rem; font-weight: 700; color: #0f172a; margin-top: 2px; }
+
     .team-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; margin-top: 6px; background: #f8fafc; }
     .slot-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 10px; background: #f8fafc; }
     .slot-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -41,8 +51,12 @@
   </style>
 </head>
 <body>
+  <!-- Khung hiển thị lỗi JavaScript toàn cục để dễ debug -->
   <div id="globalErrorBox" style="display:none; background:#fee2e2; color:#991b1b; padding:10px; margin:10px; border-radius:6px; font-size:0.85rem;"></div>
 
+  <!-- =====================================================================
+       [PHẦN B.1] MÀN HÌNH ĐĂNG NHẬP
+       ===================================================================== -->
   <div id="loginSection" class="auth-wrapper" style="display:flex;">
     <div class="card auth-card">
       <h2>Đăng Nhập Hệ Thống Ca Trực</h2>
@@ -61,7 +75,9 @@
     </div>
   </div>
 
-  <!-- Modal đổi mật khẩu -->
+  <!-- =====================================================================
+       [PHẦN B.2] CÁC MODAL POPUP (ĐỔI MẬT KHẨU, SỬA NHÂN VIÊN, SỬA TỔ)
+       ===================================================================== -->
   <div id="changePassModal" class="modal-backdrop">
     <div class="modal-card">
       <h3>Đổi Mật Khẩu</h3>
@@ -83,7 +99,6 @@
     </div>
   </div>
 
-  <!-- Modal Ca trưởng sửa thông tin nhân viên -->
   <div id="editStaffModal" class="modal-backdrop">
     <div class="modal-card">
       <h3>Sửa Thông Tin Nhân Viên</h3>
@@ -123,7 +138,6 @@
     </div>
   </div>
 
-  <!-- Modal Ca trưởng sửa Tổ / Nhóm -->
   <div id="editTeamModal" class="modal-backdrop">
     <div class="modal-card">
       <h3>Sửa Thông Tin Tổ / Nhóm</h3>
@@ -145,7 +159,11 @@
     </div>
   </div>
 
+  <!-- =====================================================================
+       [PHẦN C] GIAO DIỆN ỨNG DỤNG CHÍNH SAU KHI ĐĂNG NHẬP
+       ===================================================================== -->
   <div id="appSection" class="container" style="display: none;">
+    <!-- [C.1] Thanh tiêu đề & nút tài khoản -->
     <header class="topbar">
       <div>
         <h1>Điều Hành Nhân Sự &amp; Lịch Ca Trực</h1>
@@ -157,6 +175,7 @@
       </div>
     </header>
 
+    <!-- [C.2] 5 thẻ thống kê tổng quan -->
     <div class="stats-grid" id="panelStatsGrid">
       <div class="stat-card">
         <div class="stat-label">Tổng số nhân viên</div>
@@ -180,13 +199,14 @@
       </div>
     </div>
 
+    <!-- [C.3] Thanh điều hướng 3 tab -->
     <div class="tab-bar">
       <button type="button" class="tab-btn active" data-tab="tabStaff" id="tabBtn1">1. Thông tin nhân sự</button>
       <button type="button" class="tab-btn" data-tab="tabDay" id="tabBtn2">2. Cắt lịch trong ngày</button>
       <button type="button" class="tab-btn" data-tab="tabMonth" id="tabBtn3">3. Cắt lịch trong tháng</button>
     </div>
 
-    <!-- TAB 1: THÔNG TIN NHÂN SỰ -->
+    <!-- [C.4] TAB 1: QUẢN LÝ TỔ, THÊM NHÂN VIÊN & DANH SÁCH NHÂN SỰ -->
     <section id="tabStaff" class="tab-panel active">
       <div id="teamManageCard" class="card">
         <h2>Quản Lý Tổ / Nhóm Ca</h2>
@@ -268,7 +288,7 @@
       </div>
     </section>
 
-    <!-- TAB 2: CẮT LỊCH TRONG NGÀY (VỊ TRÍ LÀM VIỆC & KHOẢNG THỜI GIAN LÀM) -->
+    <!-- [C.5] TAB 2: CẮT LỊCH TRONG NGÀY THEO VỊ TRÍ & KHUNG GIỜ -->
     <section id="tabDay" class="tab-panel">
       <div class="card">
         <div class="section-head">
@@ -335,7 +355,7 @@
       </div>
     </section>
 
-    <!-- TAB 3: CẮT LỊCH TRONG THÁNG -->
+    <!-- [C.6] TAB 3: CẮT LỊCH TRONG THÁNG -->
     <section id="tabMonth" class="tab-panel">
       <div class="card">
         <div class="section-head">
@@ -369,6 +389,9 @@
     </section>
   </div>
 
+  <!-- =====================================================================
+       [PHẦN D] THỨ TỰ NẠP SCRIPT (KHÔNG CÒN app.js)
+       ===================================================================== -->
   <script>
     window.addEventListener("error", function (e) {
       var box = document.getElementById("globalErrorBox");
@@ -380,6 +403,14 @@
   </script>
   <script src="config.js"></script>
   <script src="scheduler.js"></script>
-  <script src="app.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/teams.js"></script>
+  <script src="js/stats-role.js"></script>
+  <script src="js/staff-crud.js"></script>
+  <script src="js/day-slots.js"></script>
+  <script src="js/day-rest.js"></script>
+  <script src="js/month-schedule.js"></script>
+  <script src="js/tabs.js"></script>
+  <script src="js/auth.js"></script>
 </body>
 </html>
