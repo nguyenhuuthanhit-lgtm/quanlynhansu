@@ -1,68 +1,90 @@
 // =========================================================================
-// [COMPONENT: js/day-slots.js] KHUNG VỊ TRÍ & KHUNG GIỜ (HỖ TRỢ XUYÊN NGÀY)
-// Hỗ trợ ca 24h (08:00 -> 08:00 hôm sau), ca đêm (18:00 -> 06:00 sáng),
-// và nhiều khung sáng / tối trong ngày.
+// [COMPONENT: js/day-slots.js] TẠO CA LÀM VIỆC TỪ NGÀY/GIỜ ĐẾN NGÀY/GIỜ
+// Hỗ trợ chọn hướng ca DEP / ARR, ca 24h hôm nay sang ngày mai,
+// ca tối sang sáng và tự lưu ngay khi thao tác.
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
-  var daySlotsByDate = {};
+  var STORAGE_KEY = "airport_custom_shifts_v1";
+  var shiftsList = [];
 
-  function getDaySlots(dateStr) {
-    if (!daySlotsByDate[dateStr]) {
-      try {
-        var raw = JSON.parse(localStorage.getItem("dayPositionSlots_" + dateStr) || "null");
-        daySlotsByDate[dateStr] = Array.isArray(raw) ? raw : [];
-      } catch (e) {
-        daySlotsByDate[dateStr] = [];
-      }
-    }
-    return daySlotsByDate[dateStr];
+  function initDefaultDateInputs() {
+    var today = new Date();
+    var yyyy = today.getFullYear();
+    var mm = String(today.getMonth() + 1).padStart(2, "0");
+    var dd = String(today.getDate()).padStart(2, "0");
+    var todayStr = yyyy + "-" + mm + "-" + dd;
+
+    var tomorrow = new Date(today.getTime() + 86400000);
+    var tStr = tomorrow.getFullYear() + "-" +
+      String(tomorrow.getMonth() + 1).padStart(2, "0") + "-" +
+      String(tomorrow.getDate()).padStart(2, "0");
+
+    var startDateEl = document.getElementById("slotStartDateInput");
+    var endDateEl = document.getElementById("slotEndDateInput");
+    if (startDateEl && !startDateEl.value) startDateEl.value = todayStr;
+    if (endDateEl && !endDateEl.value) endDateEl.value = tStr;
   }
 
-  function saveDaySlots(dateStr) {
-    var slots = getDaySlots(dateStr);
+  function loadShiftsFromStorage() {
     try {
-      localStorage.setItem("dayPositionSlots_" + dateStr, JSON.stringify(slots));
+      var raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+      shiftsList = Array.isArray(raw) ? raw : [];
+    } catch (e) {
+      shiftsList = [];
+    }
+    return shiftsList;
+  }
+
+  function getShifts() {
+    if (!shiftsList.length) {
+      loadShiftsFromStorage();
+    }
+    return shiftsList;
+  }
+
+  function saveShifts() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(shiftsList));
     } catch (e) {}
-    if (global.AppDayRest && global.AppDayRest.syncSlotsToRosters) {
-      global.AppDayRest.syncSlotsToRosters(dateStr);
+    if (global.AppDayRest && typeof global.AppDayRest.syncShiftsToState === "function") {
+      global.AppDayRest.syncShiftsToState(shiftsList);
     }
   }
 
-  function setDaySlots(dateStr, slots) {
-    daySlotsByDate[dateStr] = Array.isArray(slots) ? slots : [];
-    saveDaySlots(dateStr);
+  function parseDateTimeToMs(dateStr, timeStr) {
+    if (!dateStr || !timeStr) return null;
+    var dParts = dateStr.split("-");
+    var tParts = timeStr.split(":");
+    if (dParts.length !== 3 || tParts.length < 2) return null;
+    var y = Number(dParts[0]);
+    var m = Number(dParts[1]) - 1;
+    var d = Number(dParts[2]);
+    var hh = Number(tParts[0]);
+    var mm = Number(tParts[1]);
+    if ([y, m, d, hh, mm].some(function (n) { return Number.isNaN(n); })) return null;
+    return new Date(y, m, d, hh, mm, 0, 0).getTime();
   }
 
-  function toMins(hhmm) {
-    if (!hhmm || hhmm.indexOf(":") === -1) return null;
-    var p = hhmm.split(":");
-    var h = Number(p[0]);
-    var m = Number(p[1]);
-    if (Number.isNaN(h) || Number.isNaN(m)) return null;
-    return h * 60 + m;
-  }
-
-  // Tính khoảng phút [startMin, endMin] tính từ 00:00 của ngày chọn.
-  // Nếu endMin <= startMin (ví dụ 18:00 -> 06:00 hoặc ca 24h 08:00 -> 08:00),
-  // tự hiểu kết thúc sang ngày hôm sau (+1440 phút).
-  function getSlotRangeMinutes(slot) {
-    var s = toMins(slot.start);
-    var e = toMins(slot.end);
+  function getShiftRangeMs(shift) {
+    var s = parseDateTimeToMs(shift.startDate, shift.startTime);
+    var e = parseDateTimeToMs(shift.endDate, shift.endTime);
     if (s === null || e === null) return null;
-    var crossesMidnight = Boolean(slot.nextDay) || (e <= s);
-    var adjEnd = crossesMidnight ? (e + 1440) : e;
-    return {
-      startMin: s,
-      endMin: adjEnd,
-      crossesMidnight: crossesMidnight
-    };
+    return { startMs: s, endMs: e };
   }
 
-  function formatSlotRangeLabel(slot) {
-    var rng = getSlotRangeMinutes(slot);
-    var suffix = (rng && rng.crossesMidnight) ? " (+1 ngày)" : "";
-    return slot.start + " - " + slot.end + suffix;
+  function formatShortDate(dateStr) {
+    if (!dateStr || dateStr.indexOf("-") === -1) return dateStr || "";
+    var p = dateStr.split("-");
+    return p[2] + "/" + p[1];
+  }
+
+  function formatShiftRangeLabel(shift) {
+    var dir = shift.direction === "ARR" ? "ARR" : "DEP";
+    return "[" + dir + "] " +
+      formatShortDate(shift.startDate) + " " + shift.startTime +
+      " → " +
+      formatShortDate(shift.endDate) + " " + shift.endTime;
   }
 
   function getStaffNameById(staffId) {
@@ -73,16 +95,16 @@
     return "";
   }
 
-  function refreshDayViews() {
-    renderPositionSlotSelectorsAndCards();
-    if (global.AppDayRest && global.AppDayRest.renderDaySchedule) {
+  function refreshShiftViews() {
+    renderShiftSelectorsAndCards();
+    if (global.AppDayRest && typeof global.AppDayRest.renderDaySchedule === "function") {
       global.AppDayRest.renderDaySchedule();
     }
   }
 
-  function renderPositionSlotSelectorsAndCards() {
-    var date = Core.getSelectedDate();
-    var slots = getDaySlots(date);
+  function renderShiftSelectorsAndCards() {
+    initDefaultDateInputs();
+    var shifts = getShifts();
     var staffList = (global.rosterState && global.rosterState.staffList) || [];
 
     var slotSel = document.getElementById("assignSlotSelect");
@@ -90,18 +112,19 @@
     var container = document.getElementById("positionSlotsContainer");
 
     if (slotSel) {
-      var prevSlot = slotSel.value;
+      var prevVal = slotSel.value;
       slotSel.innerHTML = "";
-      for (var i = 0; i < slots.length; i++) {
+      for (var i = 0; i < shifts.length; i++) {
         var opt = document.createElement("option");
-        opt.value = slots[i].id;
-        opt.textContent = slots[i].position + " (" + formatSlotRangeLabel(slots[i]) + ")";
+        opt.value = shifts[i].id;
+        opt.textContent = (shifts[i].position || "Ca làm việc") + " — " + formatShiftRangeLabel(shifts[i]);
         slotSel.appendChild(opt);
       }
-      if (prevSlot) slotSel.value = prevSlot;
+      if (prevVal) slotSel.value = prevVal;
     }
 
     if (staffSel) {
+      var prevStaff = staffSel.value;
       staffSel.innerHTML = "";
       for (var j = 0; j < staffList.length; j++) {
         var sOpt = document.createElement("option");
@@ -109,18 +132,19 @@
         sOpt.textContent = (staffList[j].full_name || "") + " - " + Core.normalizeJobTitle(staffList[j]);
         staffSel.appendChild(sOpt);
       }
+      if (prevStaff) staffSel.value = prevStaff;
     }
 
     if (!container) return;
     container.innerHTML = "";
 
-    if (!slots.length) {
-      container.innerHTML = "<div class='small-muted'>Chưa có vị trí &amp; khung giờ làm việc nào cho ngày " + date + ".</div>";
+    if (!shifts.length) {
+      container.innerHTML = "<div class='small-muted'>Chưa có ca làm việc nào được tạo. Hãy nhập vị trí, hướng DEP/ARR và khoảng ngày/giờ ở trên.</div>";
       return;
     }
 
-    for (var k = 0; k < slots.length; k++) {
-      (function (slot) {
+    for (var k = 0; k < shifts.length; k++) {
+      (function (sh) {
         var card = document.createElement("div");
         card.className = "slot-card";
 
@@ -128,27 +152,27 @@
         head.className = "slot-header";
 
         var titleEl = document.createElement("div");
-        titleEl.innerHTML = "<strong>" + slot.position + "</strong> <span class='small-muted'>(" +
-          formatSlotRangeLabel(slot) + ")</span>";
+        titleEl.innerHTML = "<strong>" + sh.position + "</strong> <span class='small-muted'>(" +
+          formatShiftRangeLabel(sh) + ")</span>";
 
-        var btnDelSlot = document.createElement("button");
-        btnDelSlot.type = "button";
-        btnDelSlot.className = "btn-danger btn-sm";
-        btnDelSlot.textContent = "Xóa khung";
-        btnDelSlot.addEventListener("click", function () {
-          var nextSlots = getDaySlots(date).filter(function (item) { return item.id !== slot.id; });
-          setDaySlots(date, nextSlots);
-          refreshDayViews();
+        var btnDel = document.createElement("button");
+        btnDel.type = "button";
+        btnDel.className = "btn-danger btn-sm";
+        btnDel.textContent = "Xóa ca";
+        btnDel.addEventListener("click", function () {
+          shiftsList = shiftsList.filter(function (item) { return item.id !== sh.id; });
+          saveShifts();
+          refreshShiftViews();
         });
 
         head.appendChild(titleEl);
-        head.appendChild(btnDelSlot);
+        head.appendChild(btnDel);
         card.appendChild(head);
 
         var chipsWrap = document.createElement("div");
-        var assigned = slot.staffIds || [];
+        var assigned = sh.staffIds || [];
         if (!assigned.length) {
-          chipsWrap.innerHTML = "<span class='small-muted'>Chưa có nhân viên nào ở vị trí này.</span>";
+          chipsWrap.innerHTML = "<span class='small-muted'>Chưa có nhân viên nào trong ca này.</span>";
         } else {
           for (var a = 0; a < assigned.length; a++) {
             (function (stId) {
@@ -160,9 +184,9 @@
               xBtn.type = "button";
               xBtn.textContent = "×";
               xBtn.addEventListener("click", function () {
-                slot.staffIds = (slot.staffIds || []).filter(function (id) { return id !== stId; });
-                saveDaySlots(date);
-                refreshDayViews();
+                sh.staffIds = (sh.staffIds || []).filter(function (id) { return id !== stId; });
+                saveShifts();
+                refreshShiftViews();
               });
               chip.appendChild(txt);
               chip.appendChild(xBtn);
@@ -172,70 +196,86 @@
         }
         card.appendChild(chipsWrap);
         container.appendChild(card);
-      })(slots[k]);
+      })(shifts[k]);
     }
   }
 
-  var addPositionSlotForm = document.getElementById("addPositionSlotForm");
-  if (addPositionSlotForm) {
-    addPositionSlotForm.addEventListener("submit", function (e) {
+  var addForm = document.getElementById("addPositionSlotForm");
+  if (addForm) {
+    addForm.addEventListener("submit", function (e) {
       e.preventDefault();
-      if (!Core.isShiftLeader()) return;
+      if (!Core.isShiftLeader()) return alert("Chỉ Ca trưởng mới được tạo ca làm việc.");
+
       var pos = document.getElementById("slotPositionInput").value.trim();
-      var start = document.getElementById("slotStartInput").value;
-      var end = document.getElementById("slotEndInput").value;
-      var date = Core.getSelectedDate();
+      var direction = document.getElementById("slotDirectionInput").value || "DEP";
+      var startDate = document.getElementById("slotStartDateInput").value;
+      var startTime = document.getElementById("slotStartTimeInput").value;
+      var endDate = document.getElementById("slotEndDateInput").value;
+      var endTime = document.getElementById("slotEndTimeInput").value;
 
-      if (!pos || !start || !end) return alert("Nhập đủ vị trí làm việc và khoảng thời gian làm.");
+      if (!pos || !startDate || !startTime || !endDate || !endTime) {
+        return alert("Vui lòng nhập đủ vị trí, hướng ca và thời gian bắt đầu/kết thúc.");
+      }
 
-      var sMin = toMins(start);
-      var eMin = toMins(end);
-      var nextDay = (sMin !== null && eMin !== null && eMin <= sMin);
+      var sMs = parseDateTimeToMs(startDate, startTime);
+      var eMs = parseDateTimeToMs(endDate, endTime);
+      if (sMs === null || eMs === null || eMs <= sMs) {
+        return alert("Thời gian kết thúc phải lớn hơn thời gian bắt đầu.");
+      }
 
-      var slots = getDaySlots(date);
-      slots.push({
-        id: "slot_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      shiftsList.push({
+        id: "shift_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
         position: pos,
-        start: start,
-        end: end,
-        nextDay: nextDay,
+        direction: direction,
+        startDate: startDate,
+        startTime: startTime,
+        endDate: endDate,
+        endTime: endTime,
         staffIds: []
       });
-      saveDaySlots(date);
+
+      saveShifts();
       document.getElementById("slotPositionInput").value = "";
-      refreshDayViews();
+      refreshShiftViews();
     });
   }
 
-  var btnAddStaffToSlot = document.getElementById("btnAddStaffToSlot");
-  if (btnAddStaffToSlot) {
-    btnAddStaffToSlot.addEventListener("click", function () {
+  var btnAddStaff = document.getElementById("btnAddStaffToSlot");
+  if (btnAddStaff) {
+    btnAddStaff.addEventListener("click", function () {
       if (!Core.isShiftLeader()) return;
-      var date = Core.getSelectedDate();
-      var slots = getDaySlots(date);
-      var slotId = document.getElementById("assignSlotSelect").value;
+      var shiftId = document.getElementById("assignSlotSelect").value;
       var staffId = document.getElementById("assignStaffSelect").value;
-      if (!slotId || !staffId) return alert("Vui lòng tạo vị trí/khung giờ trước và chọn nhân viên.");
+      if (!shiftId || !staffId) return alert("Vui lòng tạo ca làm việc trước và chọn nhân viên.");
 
-      var targetSlot = null;
-      for (var i = 0; i < slots.length; i++) {
-        if (slots[i].id === slotId) { targetSlot = slots[i]; break; }
+      var target = null;
+      for (var i = 0; i < shiftsList.length; i++) {
+        if (shiftsList[i].id === shiftId) {
+          target = shiftsList[i];
+          break;
+        }
       }
-      if (!targetSlot) return;
-      if (!Array.isArray(targetSlot.staffIds)) targetSlot.staffIds = [];
-      if (targetSlot.staffIds.indexOf(staffId) === -1) targetSlot.staffIds.push(staffId);
+      if (!target) return;
+      if (!Array.isArray(target.staffIds)) target.staffIds = [];
+      if (target.staffIds.indexOf(staffId) === -1) {
+        target.staffIds.push(staffId);
+      }
 
-      saveDaySlots(date);
-      refreshDayViews();
+      saveShifts();
+      refreshShiftViews();
     });
   }
+
+  loadShiftsFromStorage();
+  initDefaultDateInputs();
 
   global.AppDaySlots = {
-    getDaySlots: getDaySlots,
-    saveDaySlots: saveDaySlots,
-    setDaySlots: setDaySlots,
-    getSlotRangeMinutes: getSlotRangeMinutes,
-    formatSlotRangeLabel: formatSlotRangeLabel,
-    renderPositionSlotSelectorsAndCards: renderPositionSlotSelectorsAndCards
+    getShifts: getShifts,
+    getDaySlots: getShifts,
+    saveShifts: saveShifts,
+    saveDaySlots: saveShifts,
+    getShiftRangeMs: getShiftRangeMs,
+    formatShiftRangeLabel: formatShiftRangeLabel,
+    renderPositionSlotSelectorsAndCards: renderShiftSelectorsAndCards
   };
 })(window);
