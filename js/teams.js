@@ -1,280 +1,257 @@
 // =========================================================================
-// [FILE: js/teams.js] QUẢN LÝ TỔ / NHÓM CA (HỖ TRỢ UUID & SỐ)
+// [COMPONENT: js/staff-crud.js] QUẢN LÝ NHÂN SỰ & THÔNG TIN CÁ NHÂN
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
-  var teamsList = [];
 
-  function saveTeamsLocal(list) {
-    try {
-      localStorage.setItem("airport_teams_v4", JSON.stringify(list));
-    } catch (e) {}
+  function getStaffGroupValue(staff) {
+    if (!staff) return "";
+    if (staff.shift_group !== null && staff.shift_group !== undefined && String(staff.shift_group).trim() !== "") {
+      return String(staff.shift_group).trim();
+    }
+    if (staff.team_id !== null && staff.team_id !== undefined && String(staff.team_id).trim() !== "") {
+      return String(staff.team_id).trim();
+    }
+    return "";
   }
 
-  function readTeamsLocal() {
-    try {
-      var raw = JSON.parse(localStorage.getItem("airport_teams_v4") || "null");
-      if (Array.isArray(raw)) return raw;
-    } catch (e) {}
-    return [];
+  function toSafeIntegerGroup(selectedValue) {
+    if (global.AppTeams && typeof global.AppTeams.getTeamNumberById === "function") {
+      var mapped = global.AppTeams.getTeamNumberById(selectedValue);
+      if (Number.isInteger(mapped) && mapped >= 1) return mapped;
+    }
+    var n = Number(selectedValue);
+    if (Number.isInteger(n) && n >= 1) return n;
+    return null;
   }
 
-  function loadTeams() {
-    var client = Core.getClient();
-    var localList = readTeamsLocal();
-
-    if (!client) {
-      teamsList = localList;
-      renderTeamSelectors();
-      renderTeamManageList();
-      return Promise.resolve(teamsList);
-    }
-
-    return client
-      .from("teams")
-      .select("*")
-      .order("id", { ascending: true })
-      .then(function (res) {
-        if (!res.error && Array.isArray(res.data)) {
-          teamsList = res.data.length > 0 ? res.data : localList;
-          if (res.data.length > 0) saveTeamsLocal(teamsList);
-        } else {
-          teamsList = localList;
-        }
-        renderTeamSelectors();
-        renderTeamManageList();
-        return teamsList;
-      })
-      .catch(function () {
-        teamsList = localList;
-        renderTeamSelectors();
-        renderTeamManageList();
-        return teamsList;
-      });
+  function renderMyPersonalCard() {
+    var grid = document.getElementById("myPersonalGrid");
+    var s = global.currentStaff;
+    if (!grid || !s) return;
+    var teamName = (global.AppTeams && global.AppTeams.getTeamNameById)
+      ? global.AppTeams.getTeamNameById(getStaffGroupValue(s))
+      : "Chưa phân tổ";
+    grid.innerHTML =
+      '<div class="info-box"><div class="small-muted">Mã nhân viên</div><strong>' + (s.employee_code || "") + '</strong></div>' +
+      '<div class="info-box"><div class="small-muted">Họ và tên</div><strong>' + (s.full_name || "") + '</strong></div>' +
+      '<div class="info-box"><div class="small-muted">Chức danh</div><strong>' + Core.normalizeJobTitle(s) + '</strong></div>' +
+      '<div class="info-box"><div class="small-muted">Tổ / Nhóm ca</div><strong>' + teamName + '</strong></div>';
   }
 
-  function getTeamNameById(groupId) {
-    if (groupId === null || groupId === undefined || String(groupId).trim() === "") {
-      return "Chưa phân tổ";
-    }
-    var target = String(groupId).trim();
-
-    // 1. Khớp trực tiếp theo id (UUID hoặc số)
-    for (var i = 0; i < teamsList.length; i++) {
-      if (String(teamsList[i].id) === target) {
-        return teamsList[i].name || "Chưa đặt tên tổ";
-      }
-    }
-
-    // 2. Dự phòng nếu DB lưu số thứ tự 1, 2, 3... trong khi teams.id là UUID
-    var num = Number(target);
-    if (Number.isInteger(num) && num >= 1 && num <= teamsList.length) {
-      return teamsList[num - 1].name || "Chưa đặt tên tổ";
-    }
-
-    return "Chưa phân tổ";
-  }
-
-  function renderTeamSelectors() {
-    var ids = ["shiftGroupInput", "editShiftGroup"];
-    for (var sIdx = 0; sIdx < ids.length; sIdx++) {
-      var sel = document.getElementById(ids[sIdx]);
-      if (!sel) continue;
-      var currentVal = sel.value;
-      sel.innerHTML = "";
-
-      for (var i = 0; i < teamsList.length; i++) {
-        var opt = document.createElement("option");
-        opt.value = String(teamsList[i].id);
-        opt.textContent = teamsList[i].name + (teamsList[i].note ? " (" + teamsList[i].note + ")" : "");
-        sel.appendChild(opt);
-      }
-
-      if (currentVal) {
-        for (var k = 0; k < sel.options.length; k++) {
-          if (sel.options[k].value === String(currentVal)) {
-            sel.value = String(currentVal);
-            break;
-          }
-        }
-      }
-      if (!sel.value && sel.options.length > 0) {
-        sel.value = sel.options[0].value;
-      }
-    }
-  }
-
-  function renderTeamManageList() {
-    var container = document.getElementById("teamListContainer");
-    if (!container) return;
-    container.innerHTML = "";
-
-    if (!teamsList.length) {
-      container.innerHTML = "<div class='small-muted'>Chưa có tổ / nhóm nào. Hãy thêm tổ mới ở trên.</div>";
-      return;
-    }
-
-    for (var i = 0; i < teamsList.length; i++) {
-      (function (t) {
-        var row = document.createElement("div");
-        row.className = "team-item";
-
-        var info = document.createElement("div");
-        info.innerHTML = "<strong>" + (t.name || "Chưa đặt tên tổ") + "</strong>" +
-          (t.note ? " <span class='small-muted'>- " + t.note + "</span>" : "");
-
-        var btns = document.createElement("div");
-        btns.className = "action-btns";
-
-        var btnEdit = document.createElement("button");
-        btnEdit.type = "button";
-        btnEdit.className = "btn-primary btn-sm";
-        btnEdit.textContent = "Sửa";
-        btnEdit.addEventListener("click", function () {
-          openEditTeamModal(t);
-        });
-
-        var btnDel = document.createElement("button");
-        btnDel.type = "button";
-        btnDel.className = "btn-danger btn-sm";
-        btnDel.textContent = "Xóa";
-        btnDel.addEventListener("click", function () {
-          if (!confirm("Xóa " + (t.name || "tổ này") + "?")) return;
-
-          var applyRemove = function () {
-            teamsList = teamsList.filter(function (item) {
-              return String(item.id) !== String(t.id);
-            });
-            saveTeamsLocal(teamsList);
-            renderTeamSelectors();
-            renderTeamManageList();
-            if (global.AppStaffCrud && typeof global.AppStaffCrud.renderStaffList === "function") {
-              global.AppStaffCrud.renderStaffList();
-            }
-          };
-
-          var client = Core.getClient();
-          if (client) {
-            client.from("teams").delete().eq("id", t.id).then(function (res) {
-              if (res.error) {
-                alert("Lỗi xóa tổ trên DB: " + res.error.message);
-                return;
-              }
-              applyRemove();
-            });
-          } else {
-            applyRemove();
-          }
-        });
-
-        btns.appendChild(btnEdit);
-        btns.appendChild(btnDel);
-        row.appendChild(info);
-        row.appendChild(btns);
-        container.appendChild(row);
-      })(teamsList[i]);
-    }
-  }
-
-  var addTeamForm = document.getElementById("addTeamForm");
-  if (addTeamForm) {
-    addTeamForm.addEventListener("submit", function (e) {
-      e.preventDefault();
-      if (!Core.isShiftLeader()) return alert("Chỉ Ca trưởng mới được thêm tổ / nhóm.");
-      var nameEl = document.getElementById("newTeamName");
-      var noteEl = document.getElementById("newTeamNote");
-      var name = nameEl ? nameEl.value.trim() : "";
-      var note = noteEl ? noteEl.value.trim() : "";
-      if (!name) return;
-
-      var client = Core.getClient();
-      if (client) {
-        client
-          .from("teams")
-          .insert({ name: name, note: note })
-          .select()
-          .single()
-          .then(function (res) {
-            if (res.error) {
-              alert("Lỗi thêm tổ: " + res.error.message);
-              return;
-            }
-            if (res.data) {
-              teamsList.push(res.data);
-              saveTeamsLocal(teamsList);
-              addTeamForm.reset();
-              renderTeamSelectors();
-              renderTeamManageList();
-            }
-          });
-      } else {
-        teamsList.push({ id: "team_" + Date.now(), name: name, note: note });
-        saveTeamsLocal(teamsList);
-        addTeamForm.reset();
-        renderTeamSelectors();
-        renderTeamManageList();
-      }
+  var editModal = document.getElementById("editStaffModal");
+  var btnCloseEditModal = document.getElementById("btnCloseEditModal");
+  if (btnCloseEditModal) {
+    btnCloseEditModal.addEventListener("click", function () {
+      if (editModal) editModal.classList.remove("open");
     });
   }
 
-  var editTeamModal = document.getElementById("editTeamModal");
-  var btnCloseTeamModal = document.getElementById("btnCloseTeamModal");
-  if (btnCloseTeamModal) {
-    btnCloseTeamModal.addEventListener("click", function () {
-      if (editTeamModal) editTeamModal.classList.remove("open");
-    });
+  function openEditStaffModal(staff) {
+    if (global.AppTeams && global.AppTeams.renderTeamSelectors) {
+      global.AppTeams.renderTeamSelectors();
+    }
+    document.getElementById("editStaffId").value = String(staff.id || "");
+    document.getElementById("editEmpCode").value = staff.employee_code || "";
+    document.getElementById("editFullName").value = staff.full_name || "";
+    document.getElementById("editJobTitle").value = Core.normalizeJobTitle(staff);
+
+    var selGroup = document.getElementById("editShiftGroup");
+    var currentNum = toSafeIntegerGroup(getStaffGroupValue(staff));
+
+    if (selGroup) {
+      var matched = false;
+      for (var i = 0; i < selGroup.options.length; i++) {
+        var optVal = selGroup.options[i].value;
+        if (currentNum !== null && toSafeIntegerGroup(optVal) === currentNum) {
+          selGroup.value = optVal;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched && selGroup.options.length > 0) {
+        selGroup.value = selGroup.options[0].value;
+      }
+    }
+
+    document.getElementById("editRole").value = staff.role || "staff";
+    if (editModal) editModal.classList.add("open");
   }
 
-  function openEditTeamModal(team) {
-    document.getElementById("editTeamId").value = String(team.id || "");
-    document.getElementById("editTeamName").value = team.name || "";
-    document.getElementById("editTeamNote").value = team.note || "";
-    if (editTeamModal) editTeamModal.classList.add("open");
-  }
-
-  var editTeamForm = document.getElementById("editTeamForm");
-  if (editTeamForm) {
-    editTeamForm.addEventListener("submit", function (e) {
+  var editStaffForm = document.getElementById("editStaffForm");
+  if (editStaffForm) {
+    editStaffForm.addEventListener("submit", function (e) {
       e.preventDefault();
-      var id = String(document.getElementById("editTeamId").value || "").trim();
-      var name = document.getElementById("editTeamName").value.trim();
-      var note = document.getElementById("editTeamNote").value.trim();
-      if (!id || !name) return;
+      var client = Core && typeof Core.getClient === "function" ? Core.getClient() : null;
+      if (!client) return alert("Chưa kết nối Supabase");
 
-      var applyLocalUpdate = function () {
-        for (var i = 0; i < teamsList.length; i++) {
-          if (String(teamsList[i].id) === id) {
-            teamsList[i].name = name;
-            teamsList[i].note = note;
-          }
-        }
-        saveTeamsLocal(teamsList);
-        if (editTeamModal) editTeamModal.classList.remove("open");
-        renderTeamSelectors();
-        renderTeamManageList();
-        if (global.AppStaffCrud && typeof global.AppStaffCrud.renderStaffList === "function") {
-          global.AppStaffCrud.renderStaffList();
-        }
-      };
+      var id = String(document.getElementById("editStaffId").value || "").trim();
+      var code = document.getElementById("editEmpCode").value.trim().toUpperCase();
+      var name = document.getElementById("editFullName").value.trim();
+      var jobTitle = document.getElementById("editJobTitle").value;
+      var groupRaw = String(document.getElementById("editShiftGroup").value || "").trim();
+      var role = document.getElementById("editRole").value || "staff";
 
-      var client = Core.getClient();
-      if (client) {
-        client.from("teams").update({ name: name, note: note }).eq("id", id).then(function (res) {
+      if (!id || !code || !name) return alert("Vui lòng nhập đủ Mã NV và Họ tên.");
+
+      var groupInt = toSafeIntegerGroup(groupRaw);
+
+      client
+        .from("profiles")
+        .update({
+          employee_code: code,
+          full_name: name,
+          job_title: jobTitle,
+          experience_years: Core.expFromJobTitle(jobTitle),
+          shift_group: groupInt,
+          role: role
+        })
+        .eq("id", id)
+        .select()
+        .then(function (res) {
           if (res.error) {
-            alert("Lỗi cập nhật tổ: " + res.error.message);
-            return;
+            return alert("Lỗi cập nhật nhân viên: " + res.error.message);
           }
-          applyLocalUpdate();
+          if (global.rosterState && Array.isArray(global.rosterState.staffList)) {
+            for (var i = 0; i < global.rosterState.staffList.length; i++) {
+              if (String(global.rosterState.staffList[i].id) === id) {
+                global.rosterState.staffList[i] = Object.assign({}, global.rosterState.staffList[i], {
+                  employee_code: code,
+                  full_name: name,
+                  job_title: jobTitle,
+                  experience_years: Core.expFromJobTitle(jobTitle),
+                  shift_group: groupInt,
+                  role: role
+                });
+              }
+            }
+          }
+          if (editModal) editModal.classList.remove("open");
+          renderStaffList();
+          if (global.AppTabs && global.AppTabs.loadDashboardData) global.AppTabs.loadDashboardData();
         });
-      } else {
-        applyLocalUpdate();
-      }
     });
   }
 
-  global.AppTeams = {
-    loadTeams: loadTeams,
-    getTeamNameById: getTeamNameById,
-    renderTeamSelectors: renderTeamSelectors
+  function renderStaffList() {
+    var tbody = document.getElementById("staffListBody");
+    if (!tbody || !global.rosterState) return;
+    tbody.innerHTML = "";
+    var list = global.rosterState.staffList || [];
+    var canManage = Core && typeof Core.isShiftLeader === "function" ? Core.isShiftLeader() : false;
+
+    for (var i = 0; i < list.length; i++) {
+      (function (s) {
+        var groupVal = getStaffGroupValue(s);
+        var teamName = (global.AppTeams && global.AppTeams.getTeamNameById)
+          ? global.AppTeams.getTeamNameById(groupVal)
+          : "Chưa phân tổ";
+
+        var tr = document.createElement("tr");
+        tr.appendChild(Core.makeTextCell(s.employee_code || "", true));
+        tr.appendChild(Core.makeTextCell(s.full_name || "", false));
+        tr.appendChild(Core.makeTextCell(Core.normalizeJobTitle(s), false));
+        tr.appendChild(Core.makeTextCell(teamName, false));
+        tr.appendChild(Core.makeTextCell(s.must_change_password ? "Chưa đổi" : "Đã đổi", false));
+
+        var actTd = document.createElement("td");
+        if (canManage) {
+          var box = document.createElement("div");
+          box.className = "action-btns";
+
+          var btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.className = "btn-primary btn-sm";
+          btnEdit.textContent = "Sửa";
+          btnEdit.addEventListener("click", function () { openEditStaffModal(s); });
+
+          var btnReset = document.createElement("button");
+          btnReset.type = "button";
+          btnReset.className = "btn-warning btn-sm";
+          btnReset.textContent = "Reset 12345";
+          btnReset.addEventListener("click", function () {
+            if (!confirm("Reset mật khẩu của " + s.full_name + " về 12345?")) return;
+            Core.getClient()
+              .from("profiles")
+              .update({ auth_password: "12345", must_change_password: true })
+              .eq("id", s.id)
+              .then(function (res) {
+                if (res.error) return alert("Lỗi reset mật khẩu: " + res.error.message);
+                alert("Đã reset mật khẩu về 12345.");
+                if (global.AppTabs && global.AppTabs.loadDashboardData) global.AppTabs.loadDashboardData();
+              });
+          });
+
+          var btnDel = document.createElement("button");
+          btnDel.type = "button";
+          btnDel.className = "btn-danger btn-sm";
+          btnDel.textContent = "Xóa";
+          btnDel.addEventListener("click", function () {
+            if (!confirm("Xóa nhân viên " + s.full_name + " (" + s.employee_code + ")?")) return;
+            Core.getClient()
+              .from("profiles")
+              .delete()
+              .eq("id", s.id)
+              .then(function (res) {
+                if (res.error) return alert("Lỗi xóa nhân viên: " + res.error.message);
+                if (global.AppTabs && global.AppTabs.loadDashboardData) global.AppTabs.loadDashboardData();
+              });
+          });
+
+          box.appendChild(btnEdit);
+          box.appendChild(btnReset);
+          box.appendChild(btnDel);
+          actTd.appendChild(box);
+        } else {
+          actTd.textContent = "-";
+        }
+        tr.appendChild(actTd);
+        tbody.appendChild(tr);
+      })(list[i]);
+    }
+  }
+
+  var staffForm = document.getElementById("staffForm");
+  if (staffForm) {
+    staffForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var client = Core && typeof Core.getClient === "function" ? Core.getClient() : null;
+      if (!client) return alert("Chưa kết nối Supabase");
+
+      var code = document.getElementById("empCode").value.trim().toUpperCase();
+      var name = document.getElementById("fullName").value.trim();
+      var jobTitle = document.getElementById("empJobTitle").value;
+      var groupRaw = String(document.getElementById("shiftGroupInput").value || "").trim();
+      var role = document.getElementById("roleInput").value || "staff";
+
+      if (!code || !name) return alert("Nhập đủ Mã NV và Tên nhân sự");
+
+      client
+        .from("profiles")
+        .insert({
+          employee_code: code,
+          full_name: name,
+          job_title: jobTitle,
+          experience_years: Core.expFromJobTitle(jobTitle),
+          shift_group: toSafeIntegerGroup(groupRaw),
+          base_shift_type: "DEP",
+          role: role,
+          auth_password: "12345",
+          must_change_password: true,
+          is_active: true
+        })
+        .select()
+        .then(function (res) {
+          if (res.error) return alert("Lỗi thêm nhân viên: " + res.error.message);
+          staffForm.reset();
+          if (global.AppTeams && global.AppTeams.renderTeamSelectors) global.AppTeams.renderTeamSelectors();
+          if (global.AppTabs && global.AppTabs.loadDashboardData) global.AppTabs.loadDashboardData();
+        });
+    });
+  }
+
+  global.AppStaffCrud = {
+    renderMyPersonalCard: renderMyPersonalCard,
+    renderStaffList: renderStaffList
   };
 })(window);
