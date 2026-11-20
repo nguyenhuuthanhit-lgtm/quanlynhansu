@@ -71,22 +71,26 @@
     });
   }
 
-  // Quản lý danh sách Tổ / Nhóm (Supabase teams + localStorage fallback)
   function saveTeamsLocal(list) {
     try {
-      localStorage.setItem("airport_teams_list", JSON.stringify(list));
+      localStorage.setItem("airport_teams_v2", JSON.stringify(list));
     } catch (e) {}
+  }
+
+  function readTeamsLocal() {
+    try {
+      var raw = JSON.parse(localStorage.getItem("airport_teams_v2") || "null");
+      if (Array.isArray(raw) && raw.length > 0) return raw;
+    } catch (e) {}
+    return DEFAULT_TEAMS.slice();
   }
 
   function loadTeams() {
     var client = getClient();
+    var localList = readTeamsLocal();
+
     if (!client) {
-      try {
-        var raw = JSON.parse(localStorage.getItem("airport_teams_list") || "null");
-        teamsList = Array.isArray(raw) && raw.length ? raw : DEFAULT_TEAMS.slice();
-      } catch (e) {
-        teamsList = DEFAULT_TEAMS.slice();
-      }
+      teamsList = localList;
       renderTeamSelectors();
       renderTeamManageList();
       return Promise.resolve(teamsList);
@@ -97,23 +101,22 @@
       .select("*")
       .order("id", { ascending: true })
       .then(function (res) {
-        if (!res.error && Array.isArray(res.data) && res.data.length > 0) {
-          teamsList = res.data;
-          saveTeamsLocal(teamsList);
-        } else {
-          try {
-            var localRaw = JSON.parse(localStorage.getItem("airport_teams_list") || "null");
-            teamsList = Array.isArray(localRaw) && localRaw.length ? localRaw : DEFAULT_TEAMS.slice();
-          } catch (e) {
-            teamsList = DEFAULT_TEAMS.slice();
+        if (!res.error && Array.isArray(res.data)) {
+          if (res.data.length > 0) {
+            teamsList = res.data;
+            saveTeamsLocal(teamsList);
+          } else {
+            teamsList = localList;
           }
+        } else {
+          teamsList = localList;
         }
         renderTeamSelectors();
         renderTeamManageList();
         return teamsList;
       })
       .catch(function () {
-        teamsList = DEFAULT_TEAMS.slice();
+        teamsList = localList;
         renderTeamSelectors();
         renderTeamManageList();
         return teamsList;
@@ -144,14 +147,12 @@
         sel.appendChild(opt);
       }
       if (currentVal) {
-        var hasMatch = false;
         for (var k = 0; k < sel.options.length; k++) {
           if (sel.options[k].value === String(currentVal)) {
-            hasMatch = true;
+            sel.value = String(currentVal);
             break;
           }
         }
-        if (hasMatch) sel.value = String(currentVal);
       }
       if (!sel.value && sel.options.length > 0) {
         sel.value = sel.options[0].value;
@@ -194,19 +195,28 @@
             return;
           }
           if (!confirm("Xóa " + (t.name || "tổ này") + "?")) return;
-          var client = getClient();
-          var afterDelete = function () {
-            teamsList = teamsList.filter(function (item) { return Number(item.id) !== Number(t.id); });
+
+          var applyRemove = function () {
+            teamsList = teamsList.filter(function (item) {
+              return Number(item.id) !== Number(t.id);
+            });
             saveTeamsLocal(teamsList);
             renderTeamSelectors();
             renderTeamManageList();
+            renderStaffList();
           };
+
+          var client = getClient();
           if (client) {
-            client.from("teams").delete().eq("id", t.id).then(function () {
-              afterDelete();
+            client.from("teams").delete().eq("id", t.id).then(function (res) {
+              if (res.error) {
+                alert("Lỗi xóa tổ trên DB: " + res.error.message);
+                return;
+              }
+              applyRemove();
             });
           } else {
-            afterDelete();
+            applyRemove();
           }
         });
 
@@ -230,35 +240,35 @@
       var note = noteEl ? noteEl.value.trim() : "";
       if (!name) return;
 
-      var maxId = teamsList.reduce(function (m, item) {
-        return Math.max(m, parsePositiveInt(item.id, 0));
-      }, 2);
-      var nextId = parsePositiveInt(maxId + 1, 3);
-
-      var finishAdd = function (teamObj) {
-        teamsList.push(teamObj);
-        saveTeamsLocal(teamsList);
-        addTeamForm.reset();
-        renderTeamSelectors();
-        renderTeamManageList();
-      };
-
       var client = getClient();
       if (client) {
         client
           .from("teams")
-          .insert({ id: nextId, name: name, note: note })
+          .insert({ name: name, note: note })
           .select()
           .single()
           .then(function (res) {
-            if (!res.error && res.data && parsePositiveInt(res.data.id, 0) > 0) {
-              finishAdd(res.data);
-            } else {
-              finishAdd({ id: nextId, name: name, note: note });
+            if (res.error) {
+              alert("Lỗi thêm tổ: " + res.error.message);
+              return;
+            }
+            if (res.data) {
+              teamsList.push(res.data);
+              saveTeamsLocal(teamsList);
+              addTeamForm.reset();
+              renderTeamSelectors();
+              renderTeamManageList();
             }
           });
       } else {
-        finishAdd({ id: nextId, name: name, note: note });
+        var maxId = teamsList.reduce(function (m, item) {
+          return Math.max(m, parsePositiveInt(item.id, 0));
+        }, 2);
+        teamsList.push({ id: maxId + 1, name: name, note: note });
+        saveTeamsLocal(teamsList);
+        addTeamForm.reset();
+        renderTeamSelectors();
+        renderTeamManageList();
       }
     });
   }
@@ -303,7 +313,11 @@
 
       var client = getClient();
       if (client) {
-        client.from("teams").update({ name: name, note: note }).eq("id", id).then(function () {
+        client.from("teams").update({ name: name, note: note }).eq("id", id).then(function (res) {
+          if (res.error) {
+            alert("Lỗi cập nhật tổ: " + res.error.message);
+            return;
+          }
           applyLocalUpdate();
         });
       } else {
@@ -317,7 +331,6 @@
     return Boolean((rec && rec.is_day_off) || leaves[staffId]);
   }
 
-  // Cập nhật 5 thẻ thống kê trên Panel
   function renderPanelStats() {
     var allStaff = (window.rosterState && window.rosterState.staffList) || [];
     var total = allStaff.length;
@@ -639,7 +652,6 @@
       '<div class="info-box"><div class="small-muted">Tổ / Nhóm ca</div><strong>' + getTeamNameById(s.shift_group) + '</strong></div>';
   }
 
-  // TAB 1: THÔNG TIN NHÂN SỰ
   var editModal = document.getElementById("editStaffModal");
   var btnCloseEditModal = document.getElementById("btnCloseEditModal");
   if (btnCloseEditModal) {
@@ -811,7 +823,6 @@
     });
   }
 
-  // TAB 2: CẮT LỊCH TRONG NGÀY
   function renderStaffDropdown() {
     var sel = document.getElementById("offStaffSelect");
     if (!sel || !window.rosterState) return;
@@ -1057,7 +1068,6 @@
     });
   }
 
-  // TAB 3: CẮT LỊCH TRONG THÁNG
   function renderMonthSchedule() {
     var tbody = document.getElementById("monthScheduleBody");
     if (!tbody || !window.rosterState) return;
