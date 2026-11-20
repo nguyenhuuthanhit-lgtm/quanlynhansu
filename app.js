@@ -40,6 +40,13 @@
     return (workMonthEl && workMonthEl.value) ? workMonthEl.value : monthStr;
   }
 
+  function parsePositiveInt(val, fallback) {
+    var num = Number(val);
+    if (Number.isInteger(num) && num >= 1) return num;
+    var fb = Number(fallback);
+    return (Number.isInteger(fb) && fb >= 1) ? fb : 1;
+  }
+
   function normalizeJobTitle(staff) {
     if (staff.job_title === "Chính thức" || staff.job_title === "Học việc") {
       return staff.job_title;
@@ -114,7 +121,7 @@
   }
 
   function getTeamNameById(groupId) {
-    var numId = Number(groupId || 1);
+    var numId = parsePositiveInt(groupId, 1);
     for (var i = 0; i < teamsList.length; i++) {
       if (Number(teamsList[i].id) === numId) {
         return teamsList[i].name;
@@ -132,11 +139,23 @@
       sel.innerHTML = "";
       for (var i = 0; i < teamsList.length; i++) {
         var opt = document.createElement("option");
-        opt.value = String(teamsList[i].id);
+        opt.value = String(parsePositiveInt(teamsList[i].id, i + 1));
         opt.textContent = teamsList[i].name + (teamsList[i].note ? " (" + teamsList[i].note + ")" : "");
         sel.appendChild(opt);
       }
-      if (currentVal) sel.value = currentVal;
+      if (currentVal) {
+        var hasMatch = false;
+        for (var k = 0; k < sel.options.length; k++) {
+          if (sel.options[k].value === String(currentVal)) {
+            hasMatch = true;
+            break;
+          }
+        }
+        if (hasMatch) sel.value = String(currentVal);
+      }
+      if (!sel.value && sel.options.length > 0) {
+        sel.value = sel.options[0].value;
+      }
     }
   }
 
@@ -211,27 +230,35 @@
       var note = noteEl ? noteEl.value.trim() : "";
       if (!name) return;
 
-      var client = getClient();
-      if (client) {
-        client.from("teams").insert({ name: name, note: note }).select().single().then(function (res) {
-          if (!res.error && res.data) {
-            teamsList.push(res.data);
-          } else {
-            var maxId = teamsList.reduce(function (m, item) { return Math.max(m, Number(item.id || 0)); }, 0);
-            teamsList.push({ id: maxId + 1, name: name, note: note });
-          }
-          saveTeamsLocal(teamsList);
-          addTeamForm.reset();
-          renderTeamSelectors();
-          renderTeamManageList();
-        });
-      } else {
-        var maxId = teamsList.reduce(function (m, item) { return Math.max(m, Number(item.id || 0)); }, 0);
-        teamsList.push({ id: maxId + 1, name: name, note: note });
+      var maxId = teamsList.reduce(function (m, item) {
+        return Math.max(m, parsePositiveInt(item.id, 0));
+      }, 2);
+      var nextId = parsePositiveInt(maxId + 1, 3);
+
+      var finishAdd = function (teamObj) {
+        teamsList.push(teamObj);
         saveTeamsLocal(teamsList);
         addTeamForm.reset();
         renderTeamSelectors();
         renderTeamManageList();
+      };
+
+      var client = getClient();
+      if (client) {
+        client
+          .from("teams")
+          .insert({ id: nextId, name: name, note: note })
+          .select()
+          .single()
+          .then(function (res) {
+            if (!res.error && res.data && parsePositiveInt(res.data.id, 0) > 0) {
+              finishAdd(res.data);
+            } else {
+              finishAdd({ id: nextId, name: name, note: note });
+            }
+          });
+      } else {
+        finishAdd({ id: nextId, name: name, note: note });
       }
     });
   }
@@ -255,7 +282,7 @@
   if (editTeamForm) {
     editTeamForm.addEventListener("submit", function (e) {
       e.preventDefault();
-      var id = Number(document.getElementById("editTeamId").value);
+      var id = parsePositiveInt(document.getElementById("editTeamId").value, 1);
       var name = document.getElementById("editTeamName").value.trim();
       var note = document.getElementById("editTeamNote").value.trim();
       if (!name) return;
@@ -627,7 +654,7 @@
     document.getElementById("editEmpCode").value = staff.employee_code || "";
     document.getElementById("editFullName").value = staff.full_name || "";
     document.getElementById("editJobTitle").value = normalizeJobTitle(staff);
-    document.getElementById("editShiftGroup").value = String(staff.shift_group || 1);
+    document.getElementById("editShiftGroup").value = String(parsePositiveInt(staff.shift_group, 1));
     document.getElementById("editRole").value = staff.role || "staff";
     if (editModal) editModal.classList.add("open");
   }
@@ -643,7 +670,7 @@
       var code = document.getElementById("editEmpCode").value.trim().toUpperCase();
       var name = document.getElementById("editFullName").value.trim();
       var jobTitle = document.getElementById("editJobTitle").value;
-      var group = Number(document.getElementById("editShiftGroup").value || 1);
+      var group = parsePositiveInt(document.getElementById("editShiftGroup").value, 1);
       var role = document.getElementById("editRole").value || "staff";
 
       client
@@ -753,7 +780,7 @@
       var code = document.getElementById("empCode").value.trim().toUpperCase();
       var name = document.getElementById("fullName").value.trim();
       var jobTitle = document.getElementById("empJobTitle").value;
-      var group = Number(document.getElementById("shiftGroupInput").value || 1);
+      var group = parsePositiveInt(document.getElementById("shiftGroupInput").value, 1);
       var role = document.getElementById("roleInput").value || "staff";
 
       if (!code || !name) return alert("Nhập đủ Mã NV và Tên nhân sự");
@@ -778,6 +805,7 @@
             return;
           }
           staffForm.reset();
+          renderTeamSelectors();
           window.loadDashboardData();
         });
     });
