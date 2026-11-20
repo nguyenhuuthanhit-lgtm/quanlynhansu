@@ -4,11 +4,14 @@
   function loadDashboardData() {
     if (!Core || !Core.getClient()) return Promise.resolve();
     var date = Core.getSelectedDate();
-    var task = (typeof global.fetchDailySchedule === "function")
+    var teamsTask = (global.AppTeams && typeof global.AppTeams.loadTeams === "function")
+      ? global.AppTeams.loadTeams()
+      : Promise.resolve();
+    var scheduleTask = (typeof global.fetchDailySchedule === "function")
       ? global.fetchDailySchedule(date)
       : Promise.resolve();
 
-    return Promise.resolve(task).then(function () {
+    return Promise.all([teamsTask, Promise.resolve(scheduleTask)]).then(function () {
       if (global.AppDayRest && global.AppDayRest.syncSlotsToRosters) {
         global.AppDayRest.syncSlotsToRosters(date);
       }
