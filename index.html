@@ -14,13 +14,17 @@
     .tab-panel.active { display: block; }
     .month-days-box { display: flex; flex-wrap: wrap; gap: 4px; max-width: 340px; }
     .day-chip { width: 28px; height: 28px; font-size: 0.75rem; border-radius: 4px; border: 1px solid #cbd5e1; cursor: pointer; font-weight: 600; }
+    .day-chip.readonly { cursor: default; opacity: 0.92; }
     .day-work { background: #e0f2fe; color: #0369a1; }
     .day-off { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
     .small-muted { font-size: 0.8rem; color: #64748b; }
     .action-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+    .inline-select { padding: 4px 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 0.85rem; }
     .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: none; align-items: center; justify-content: center; z-index: 999; padding: 14px; }
     .modal-backdrop.open { display: flex; }
     .modal-card { background: #fff; padding: 18px; border-radius: 10px; width: 100%; max-width: 440px; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .info-box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; background: #f8fafc; }
   </style>
 </head>
 <body>
@@ -31,7 +35,7 @@
       <h2>Đăng Nhập Hệ Thống Ca Trực</h2>
       <form id="loginForm">
         <div class="form-group">
-          <label>Mã nhân viên (hoặc Email Ca trưởng)</label>
+          <label>Mã nhân viên</label>
           <input type="text" id="loginUserInput" required placeholder="VD: 123456 hoặc NV012" />
         </div>
         <div class="form-group">
@@ -44,7 +48,7 @@
     </div>
   </div>
 
-  <!-- Modal đổi mật khẩu (bắt buộc ở lần đăng nhập đầu nếu dùng MK mặc định) -->
+  <!-- Modal đổi mật khẩu -->
   <div id="changePassModal" class="modal-backdrop">
     <div class="modal-card">
       <h3>Đổi Mật Khẩu</h3>
@@ -66,7 +70,7 @@
     </div>
   </div>
 
-  <!-- Modal sửa thông tin nhân viên -->
+  <!-- Modal Ca trưởng sửa thông tin nhân viên (Chức danh, Tổ nhóm ca...) -->
   <div id="editStaffModal" class="modal-backdrop">
     <div class="modal-card">
       <h3>Sửa Thông Tin Nhân Viên</h3>
@@ -95,14 +99,7 @@
           </select>
         </div>
         <div class="form-group">
-          <label>Hướng ca mặc định</label>
-          <select id="editBaseShift">
-            <option value="DEP">DEP (Chuyến đi)</option>
-            <option value="ARR">ARR (Chuyến đến)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Vai trò</label>
+          <label>Vai trò hệ thống</label>
           <select id="editRole">
             <option value="staff">Nhân viên (staff)</option>
             <option value="shift_leader">Ca trưởng (shift_leader)</option>
@@ -129,12 +126,12 @@
     </header>
 
     <div class="tab-bar">
-      <button type="button" class="tab-btn active" data-tab="tabStaff">1. Thông tin nhân sự</button>
-      <button type="button" class="tab-btn" data-tab="tabDay">2. Cắt lịch trong ngày</button>
-      <button type="button" class="tab-btn" data-tab="tabMonth">3. Cắt lịch trong tháng</button>
+      <button type="button" class="tab-btn active" data-tab="tabStaff" id="tabBtn1">1. Thông tin nhân sự</button>
+      <button type="button" class="tab-btn" data-tab="tabDay" id="tabBtn2">2. Cắt lịch trong ngày</button>
+      <button type="button" class="tab-btn" data-tab="tabMonth" id="tabBtn3">3. Cắt lịch trong tháng</button>
     </div>
 
-    <!-- TAB 1: THÔNG TIN NHÂN SỰ -->
+    <!-- TAB 1: THÔNG TIN NHÂN SỰ / THÔNG TIN CÁ NHÂN -->
     <section id="tabStaff" class="tab-panel active">
       <div id="staffFormCard" class="card">
         <h2>Thêm Nhân Viên Mới</h2>
@@ -165,13 +162,6 @@
               </select>
             </div>
             <div>
-              <label>Hướng ca mặc định (DEP / ARR)</label>
-              <select id="baseShiftInput">
-                <option value="DEP">DEP (Chuyến đi)</option>
-                <option value="ARR">ARR (Chuyến đến)</option>
-              </select>
-            </div>
-            <div>
               <label>Vai trò hệ thống</label>
               <select id="roleInput">
                 <option value="staff">Nhân viên (staff)</option>
@@ -183,7 +173,12 @@
         </form>
       </div>
 
-      <div class="card">
+      <div id="myPersonalCard" class="card" style="display:none;">
+        <h2>Thông Tin Cá Nhân</h2>
+        <div id="myPersonalGrid" class="info-grid"></div>
+      </div>
+
+      <div id="staffTableCard" class="card">
         <h2>Danh Sách Nhân Sự</h2>
         <div class="table-wrap">
           <table>
@@ -192,8 +187,7 @@
                 <th>Mã NV</th>
                 <th>Tên nhân sự</th>
                 <th>Chức danh</th>
-                <th>Tổ ca</th>
-                <th>Hướng ca</th>
+                <th>Tổ / Nhóm ca</th>
                 <th>MK đầu</th>
                 <th>Thao tác</th>
               </tr>
@@ -204,18 +198,18 @@
       </div>
     </section>
 
-    <!-- TAB 2: CẮT LỊCH TRONG NGÀY -->
+    <!-- TAB 2: CẮT LỊCH TRONG NGÀY / VỊ TRÍ TRONG NGÀY -->
     <section id="tabDay" class="tab-panel">
       <div class="card">
         <div class="section-head">
-          <h2>Cắt Lịch Trong Ngày</h2>
+          <h2 id="daySectionTitle">Cắt Lịch Trong Ngày</h2>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input type="date" id="workDate" />
             <button type="button" id="btnSaveAllRosters" class="btn-success">Lưu lịch ngày</button>
           </div>
         </div>
 
-        <div class="form-row" style="margin-top:10px;">
+        <div id="dayCutControls" class="form-row" style="margin-top:10px;">
           <div>
             <label>Chọn nhân sự cắt nghỉ</label>
             <select id="offStaffSelect"></select>
@@ -245,7 +239,7 @@
                 <th>Thời gian làm</th>
                 <th>Vị trí</th>
                 <th>Thời gian nghỉ</th>
-                <th>Thao tác</th>
+                <th id="dayActionHeader">Thao tác</th>
               </tr>
             </thead>
             <tbody id="scheduleBody"></tbody>
@@ -254,17 +248,19 @@
       </div>
     </section>
 
-    <!-- TAB 3: CẮT LỊCH TRONG THÁNG -->
+    <!-- TAB 3: CẮT LỊCH TRONG THÁNG / LỊCH LÀM OFF TRONG THÁNG -->
     <section id="tabMonth" class="tab-panel">
       <div class="card">
         <div class="section-head">
-          <h2>Cắt Lịch Trong Tháng</h2>
+          <h2 id="monthSectionTitle">Cắt Lịch Trong Tháng</h2>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input type="month" id="workMonth" />
             <button type="button" id="btnReloadMonth" class="btn-primary btn-sm">Tải lại tháng</button>
           </div>
         </div>
-        <p class="small-muted" style="margin-top:6px;">Bấm vào từng ngày (01..31) để chuyển đổi nhanh giữa <strong>Ngày làm</strong> (xanh) và <strong>Ngày OFF</strong> (đỏ).</p>
+        <p id="monthHintText" class="small-muted" style="margin-top:6px;">
+          Chọn <strong>Hướng ca (DEP / ARR)</strong> cho từng nhân sự trong tháng và bấm vào từng ngày (01..31) để chuyển giữa <strong>Ngày làm</strong> (xanh) và <strong>Ngày OFF</strong> (đỏ).
+        </p>
       </div>
 
       <div class="card">
@@ -274,6 +270,7 @@
               <tr>
                 <th>Tên nhân sự</th>
                 <th>Chức danh</th>
+                <th>Hướng ca</th>
                 <th>Ngày làm</th>
                 <th>Ngày OFF</th>
               </tr>
