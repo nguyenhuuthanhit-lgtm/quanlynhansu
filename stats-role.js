@@ -1,38 +1,91 @@
 // =========================================================================
 // [COMPONENT: js/stats-role.js] THỐNG KÊ TỔNG QUAN & PHÂN QUYỀN VAI TRÒ
-// Nhãn thống kê: "Nhân viên học viện" & "Nhân viên chính thức".
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
 
-  function isOffDay(staffId, rec) {
-    var leaves = (global.rosterState && global.rosterState.leavesByStaff) || {};
-    return Boolean((rec && rec.is_day_off) || leaves[staffId]);
+  function getStaffArray() {
+    var rs = global.rosterState;
+    if (rs && Array.isArray(rs.staffList)) return rs.staffList;
+    if (Array.isArray(global.staffList)) return global.staffList;
+    if (Array.isArray(global.allStaff)) return global.allStaff;
+    return [];
+  }
+
+  function isOffDay(staffId, rec, dateStr) {
+    var rs = global.rosterState || {};
+    var leaves = rs.leavesByStaff || {};
+
+    // Kiểm tra leavesByStaff theo staffId hoặc theo key staffId_dateStr
+    if (leaves[staffId] || (dateStr && leaves[staffId + "_" + dateStr])) {
+      return true;
+    }
+
+    // Kiểm tra trong mảng leaves nếu có
+    if (Array.isArray(rs.leaves)) {
+      for (var i = 0; i < rs.leaves.length; i++) {
+        var lv = rs.leaves[i];
+        if (lv && lv.staff_id === staffId && lv.status !== "rejected") {
+          if (!dateStr || !lv.leave_date || lv.leave_date === dateStr) {
+            return true;
+          }
+        }
+      }
+    }
+
+    if (rec && (rec.is_day_off === true || rec.duty_type === "OFF")) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function getRosterForStaffDate(staffId, dateStr) {
+    var rs = global.rosterState || {};
+    var map = rs.rostersByStaff || {};
+
+    if (map[staffId]) return map[staffId];
+    if (dateStr && map[staffId + "_" + dateStr]) return map[staffId + "_" + dateStr];
+
+    if (Array.isArray(rs.dailyRosters)) {
+      for (var i = 0; i < rs.dailyRosters.length; i++) {
+        var r = rs.dailyRosters[i];
+        if (r && r.staff_id === staffId && (!dateStr || !r.shift_date || r.shift_date === dateStr)) {
+          return r;
+        }
+      }
+    }
+
+    if (typeof global.getOrCreateRoster === "function") {
+      return global.getOrCreateRoster(staffId, dateStr);
+    }
+    return null;
   }
 
   function renderPanelStats() {
-    var allStaff = (global.rosterState && global.rosterState.staffList) || [];
+    var allStaff = getStaffArray();
     var total = allStaff.length;
     var officialCount = 0; // Nhân viên chính thức
     var traineeCount = 0;  // Nhân viên học viện
     var offTodayCount = 0;
-    var date = Core.getSelectedDate();
+    var date = Core ? Core.getSelectedDate() : "";
 
     for (var i = 0; i < allStaff.length; i++) {
       var s = allStaff[i];
-      if (Core.normalizeJobTitle(s) === "Chính thức") {
+      var title = Core && typeof Core.normalizeJobTitle === "function"
+        ? Core.normalizeJobTitle(s)
+        : (s.job_title || "Học việc");
+
+      if (title === "Chính thức") {
         officialCount++;
       } else {
         traineeCount++;
       }
 
-      var rec = (global.rosterState && global.rosterState.rostersByStaff)
-        ? global.rosterState.rostersByStaff[s.id]
-        : null;
-      if (!rec && typeof global.getOrCreateRoster === "function") {
-        rec = global.getOrCreateRoster(s.id, date);
+      var rec = getRosterForStaffDate(s.id, date);
+      if (isOffDay(s.id, rec, date)) {
+        offTodayCount++;
       }
-      if (isOffDay(s.id, rec)) offTodayCount++;
     }
 
     var workTodayCount = Math.max(0, total - offTodayCount);
@@ -51,7 +104,7 @@
   }
 
   function applyRoleLabelsAndVisibility() {
-    var leader = Core.isShiftLeader();
+    var leader = Core && typeof Core.isShiftLeader === "function" ? Core.isShiftLeader() : false;
 
     var tabBtn1 = document.getElementById("tabBtn1");
     var tabBtn2 = document.getElementById("tabBtn2");
