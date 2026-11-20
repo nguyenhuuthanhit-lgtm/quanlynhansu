@@ -1,5 +1,5 @@
 // =========================================================================
-// [FILE: js/teams.js] QUẢN LÝ TỔ / NHÓM CA (HỖ TRỢ CẢ ID KIỂU UUID & SỐ)
+// [FILE: js/teams.js] QUẢN LÝ TỔ / NHÓM CA (HỖ TRỢ UUID & SỐ)
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
@@ -54,11 +54,24 @@
   }
 
   function getTeamNameById(groupId) {
+    if (groupId === null || groupId === undefined || String(groupId).trim() === "") {
+      return "Chưa phân tổ";
+    }
+    var target = String(groupId).trim();
+
+    // 1. Khớp trực tiếp theo id (UUID hoặc số)
     for (var i = 0; i < teamsList.length; i++) {
-      if (String(teamsList[i].id) === String(groupId)) {
+      if (String(teamsList[i].id) === target) {
         return teamsList[i].name || "Chưa đặt tên tổ";
       }
     }
+
+    // 2. Dự phòng nếu DB lưu số thứ tự 1, 2, 3... trong khi teams.id là UUID
+    var num = Number(target);
+    if (Number.isInteger(num) && num >= 1 && num <= teamsList.length) {
+      return teamsList[num - 1].name || "Chưa đặt tên tổ";
+    }
+
     return "Chưa phân tổ";
   }
 
@@ -69,12 +82,14 @@
       if (!sel) continue;
       var currentVal = sel.value;
       sel.innerHTML = "";
+
       for (var i = 0; i < teamsList.length; i++) {
         var opt = document.createElement("option");
         opt.value = String(teamsList[i].id);
         opt.textContent = teamsList[i].name + (teamsList[i].note ? " (" + teamsList[i].note + ")" : "");
         sel.appendChild(opt);
       }
+
       if (currentVal) {
         for (var k = 0; k < sel.options.length; k++) {
           if (sel.options[k].value === String(currentVal)) {
