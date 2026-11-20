@@ -1,12 +1,14 @@
 // =========================================================================
-// [COMPONENT: js/day-rest.js] TÍNH KHOẢNG NGHỈ TẠI CHỖ & HIỂN THỊ CA
-// Tính chính xác thời gian nghỉ giữa các ca theo mốc ngày + giờ thực tế
-// (hỗ trợ nhiều ca sáng/tối, ca 12h/24h xuyên ngày) và hướng DEP/ARR.
+// [COMPONENT: js/day-rest.js] TÍNH KHOẢNG NGHỈ TRONG KHUNG CA
+// Với mỗi khung ca [frameStart, frameEnd] mà nhân viên có tham gia ca con:
+// - Khoảng trống từ đầu khung ca đến ca làm đầu tiên
+// - Khoảng trống giữa các ca làm liên tiếp trong khung
+// - Khoảng trống từ ca làm cuối cùng đến hết khung ca (frameEnd)
 // =========================================================================
 (function (global) {
   var Core = global.AppCore;
 
-  function formatTimestamp(ms) {
+  function formatTs(ms) {
     var d = new Date(ms);
     var dd = String(d.getDate()).padStart(2, "0");
     var mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -23,102 +25,98 @@
     return (hrs > 0 ? hrs + "g" : "") + (mins > 0 ? mins + "p" : "");
   }
 
-  function getRangeMs(shift) {
-    if (global.AppDaySlots && typeof global.AppDaySlots.getShiftRangeMs === "function") {
-      return global.AppDaySlots.getShiftRangeMs(shift);
+  function toMs(dateStr, timeStr) {
+    if (global.AppDaySlots && typeof global.AppDaySlots.parseDateTimeToMs === "function") {
+      return global.AppDaySlots.parseDateTimeToMs(dateStr, timeStr);
     }
     return null;
   }
 
-  function formatShiftLabel(shift) {
-    if (global.AppDaySlots && typeof global.AppDaySlots.formatShiftRangeLabel === "function") {
-      return global.AppDaySlots.formatShiftRangeLabel(shift);
-    }
-    return (shift.direction || "DEP") + " " + (shift.startTime || "") + " - " + (shift.endTime || "");
-  }
+  function getStaffWorkByFrame(staffId) {
+    var st = (global.AppDaySlots && typeof global.AppDaySlots.getStore === "function")
+      ? global.AppDaySlots.getStore()
+      : { frames: [], slots: [] };
 
-  function getStaffShifts(staffId) {
-    var all = (global.AppDaySlots && typeof global.AppDaySlots.getShifts === "function")
-      ? global.AppDaySlots.getShifts()
-      : [];
-    var matched = [];
-    for (var i = 0; i < all.length; i++) {
-      if ((all[i].staffIds || []).indexOf(staffId) !== -1) {
-        matched.push(all[i]);
-      }
-    }
-    matched.sort(function (a, b) {
-      var ra = getRangeMs(a);
-      var rb = getRangeMs(b);
-      if (!ra) return 1;
-      if (!rb) return -1;
-      if (ra.startMs !== rb.startMs) return ra.startMs - rb.startMs;
-      return ra.endMs - rb.endMs;
-    });
-    return matched;
-  }
-
-  // Tính các khoảng nghỉ tại chỗ giữa các ca làm việc của nhân viên
-  function computeRestPeriods(staffShifts) {
-    if (!staffShifts || staffShifts.length <= 1) return [];
-    var intervals = [];
-    for (var i = 0; i < staffShifts.length; i++) {
-      var rng = getRangeMs(staffShifts[i]);
-      if (rng) intervals.push({ start: rng.startMs, end: rng.endMs });
-    }
-    if (intervals.length <= 1) return [];
-
-    intervals.sort(function (a, b) {
-      return a.start !== b.start ? a.start - b.start : a.end - b.end;
+    var mySlots = st.slots.filter(function (sl) {
+      return (sl.staffIds || []).indexOf(staffId) !== -1;
     });
 
-    var merged = [intervals[0]];
-    for (var j = 1; j < intervals.length; j++) {
-      var last = merged[merged.length - 1];
-      var cur = intervals[j];
-      if (cur.start <= last.end) {
-        if (cur.end > last.end) last.end = cur.end;
-      } else {
-        merged.push({ start: cur.start, end: cur.end });
-      }
+    // Nhóm các ca con theo khung ca
+    var byFrame = {};
+    for (var i = 0; i < mySlots.length; i++) {
+      var sl = mySlots[i];
+      var fId = sl.frameId || "_default";
+      if (!byFrame[fId]) byFrame[fId] = [];
+      byFrame[fId].push(sl);
     }
 
-    var rests = [];
-    for (var k = 0; k < merged.length - 1; k++) {
-      var restStart = merged[k].end;
-      var restEnd = merged[k + 1].start;
-      if (restEnd > restStart) {
-        var dur = formatDuration(restEnd - restStart);
-        rests.push(formatTimestamp(restStart) + " → " + formatTimestamp(restEnd) + (dur ? " (" + dur + ")" : ""));
-      }
-    }
-    return rests;
-  }
+    var results = [];
+    var frameIds = Object.keys(byFrame);
 
-  function syncShiftsToState(shifts) {
-    if (!global.rosterState) return;
-    var allStaff = global.rosterState.staffList || [];
-    for (var i = 0; i < allStaff.length; i++) {
-      var st = allStaff[i];
-      var myShifts = getStaffShifts(st.id);
-      if (typeof global.getOrCreateRoster === "function") {
-        var dateKey = (myShifts[0] && myShifts[0].startDate) || Core.getSelectedDate();
-        var rec = global.getOrCreateRoster(st.id, dateKey);
-        rec.shift_direction = myShifts[0] ? (myShifts[0].direction || "DEP") : (st.base_shift_type || "DEP");
-        rec.shift_1 = myShifts[0] ? (myShifts[0].position + " " + formatShiftLabel(myShifts[0])) : "";
-        rec.shift_2 = myShifts[1] ? (myShifts[1].position + " " + formatShiftLabel(myShifts[1])) : "";
-        rec.work_shifts = myShifts.map(function (s) {
-          return {
-            position: s.position,
-            direction: s.direction || "DEP",
-            startDate: s.startDate,
-            startTime: s.startTime,
-            endDate: s.endDate,
-            endTime: s.endTime
-          };
-        });
+    for (var f = 0; f < frameIds.length; f++) {
+      var fid = frameIds[f];
+      var frameObj = (global.AppDaySlots && typeof global.AppDaySlots.getFrameById === "function")
+        ? global.AppDaySlots.getFrameById(fid)
+        : null;
+      var fSlots = byFrame[fid].slice().sort(function (a, b) {
+        return (toMs(a.startDate, a.startTime) || 0) - (toMs(b.startDate, b.startTime) || 0);
+      });
+
+      var fStart = frameObj ? toMs(frameObj.startDate, frameObj.startTime) : toMs(fSlots[0].startDate, fSlots[0].startTime);
+      var fEnd = frameObj ? toMs(frameObj.endDate, frameObj.endTime) : toMs(fSlots[fSlots.length - 1].endDate, fSlots[fSlots.length - 1].endTime);
+
+      // Gộp các khoảng làm việc con trong khung
+      var intervals = [];
+      for (var j = 0; j < fSlots.length; j++) {
+        var sMs = toMs(fSlots[j].startDate, fSlots[j].startTime);
+        var eMs = toMs(fSlots[j].endDate, fSlots[j].endTime);
+        if (sMs !== null && eMs !== null && eMs > sMs) {
+          intervals.push({ start: sMs, end: eMs });
+        }
       }
+      intervals.sort(function (a, b) { return a.start - b.start; });
+
+      var merged = [];
+      for (var m = 0; m < intervals.length; m++) {
+        if (!merged.length) {
+          merged.push({ start: intervals[m].start, end: intervals[m].end });
+        } else {
+          var prev = merged[merged.length - 1];
+          if (intervals[m].start <= prev.end) {
+            if (intervals[m].end > prev.end) prev.end = intervals[m].end;
+          } else {
+            merged.push({ start: intervals[m].start, end: intervals[m].end });
+          }
+        }
+      }
+
+      // Tính khoảng nghỉ: đầu khung -> ca đầu, giữa các ca, ca cuối -> hết khung
+      var restLines = [];
+      if (merged.length > 0 && fStart !== null && fEnd !== null && fEnd > fStart) {
+        if (merged[0].start > fStart) {
+          var r0 = formatDuration(merged[0].start - fStart);
+          restLines.push(formatTs(fStart) + " → " + formatTs(merged[0].start) + (r0 ? " (" + r0 + ")" : ""));
+        }
+        for (var g = 0; g < merged.length - 1; g++) {
+          if (merged[g + 1].start > merged[g].end) {
+            var rMid = formatDuration(merged[g + 1].start - merged[g].end);
+            restLines.push(formatTs(merged[g].end) + " → " + formatTs(merged[g + 1].start) + (rMid ? " (" + rMid + ")" : ""));
+          }
+        }
+        if (fEnd > merged[merged.length - 1].end) {
+          var rLast = formatDuration(fEnd - merged[merged.length - 1].end);
+          restLines.push(formatTs(merged[merged.length - 1].end) + " → " + formatTs(fEnd) + (rLast ? " (" + rLast + ")" : ""));
+        }
+      }
+
+      results.push({
+        frame: frameObj,
+        slots: fSlots,
+        rests: restLines
+      });
     }
+
+    return results;
   }
 
   function renderDaySchedule() {
@@ -132,40 +130,45 @@
     for (var i = 0; i < list.length; i++) {
       (function (staff) {
         var isOff = Boolean(offMap[staff.id]);
-        var myShifts = getStaffShifts(staff.id);
-        var rests = computeRestPeriods(myShifts);
+        var groups = getStaffWorkByFrame(staff.id);
 
         var tr = document.createElement("tr");
         tr.appendChild(Core.makeTextCell(staff.full_name || "", true));
         tr.appendChild(Core.makeTextCell(Core.normalizeJobTitle(staff), false));
 
         var workTd = document.createElement("td");
+        var restTd = document.createElement("td");
+
         if (isOff) {
           workTd.innerHTML = "<span class='badge-off'>OFF</span>";
-        } else if (myShifts.length > 0) {
-          var lines = [];
-          for (var sIdx = 0; sIdx < myShifts.length; sIdx++) {
-            var sh = myShifts[sIdx];
-            lines.push("<strong>" + sh.position + "</strong>: " + formatShiftLabel(sh));
-          }
-          workTd.innerHTML = lines.join("<br>");
-        } else {
-          workTd.textContent = "Nghỉ tại chỗ";
-        }
-        tr.appendChild(workTd);
-
-        var restTd = document.createElement("td");
-        if (isOff) {
           restTd.textContent = "Đang OFF";
-        } else if (rests.length > 0) {
-          restTd.innerHTML = "<strong>" + rests.join("<br>") + "</strong>";
-        } else if (myShifts.length > 0) {
-          restTd.textContent = "Không có khoảng nghỉ xen giữa các ca";
-        } else {
-          restTd.textContent = "Nghỉ tại chỗ";
-        }
-        tr.appendChild(restTd);
+        } else if (groups.length > 0) {
+          var wHtml = [];
+          var rHtml = [];
+          for (var g = 0; g < groups.length; g++) {
+            var grp = groups[g];
+            var fText = grp.frame
+              ? ("<strong>Khung " + grp.frame.name + "</strong> [" + (grp.frame.direction || "DEP") + "]")
+              : "<strong>Khung ca</strong>";
+            var slotDescs = grp.slots.map(function (s) {
+              return "• " + s.position + ": " +
+                (global.AppDaySlots && global.AppDaySlots.formatSlotLabel ? global.AppDaySlots.formatSlotLabel(s) : (s.startTime + "-" + s.endTime));
+            });
+            wHtml.push(fText + "<br>" + slotDescs.join("<br>"));
 
+            if (grp.rests.length > 0) {
+              rHtml.push("<strong>" + grp.rests.join("<br>") + "</strong>");
+            }
+          }
+          workTd.innerHTML = wHtml.join("<br><br>");
+          restTd.innerHTML = rHtml.length > 0 ? rHtml.join("<br>") : "Không có khoảng nghỉ trong khung";
+        } else {
+          workTd.textContent = "Chưa gán ca";
+          restTd.textContent = "-";
+        }
+
+        tr.appendChild(workTd);
+        tr.appendChild(restTd);
         tbody.appendChild(tr);
       })(list[i]);
     }
@@ -182,14 +185,13 @@
       global.manualOffStaff = global.manualOffStaff || {};
       global.manualOffStaff[staffId] = !global.manualOffStaff[staffId];
 
-      // Nếu đánh dấu OFF thì gỡ nhân viên khỏi các ca đang gán
-      if (global.manualOffStaff[staffId] && global.AppDaySlots && typeof global.AppDaySlots.getShifts === "function") {
-        var allShifts = global.AppDaySlots.getShifts();
-        for (var i = 0; i < allShifts.length; i++) {
-          allShifts[i].staffIds = (allShifts[i].staffIds || []).filter(function (id) { return id !== staffId; });
+      if (global.manualOffStaff[staffId] && global.AppDaySlots && typeof global.AppDaySlots.getStore === "function") {
+        var st = global.AppDaySlots.getStore();
+        for (var i = 0; i < st.slots.length; i++) {
+          st.slots[i].staffIds = (st.slots[i].staffIds || []).filter(function (id) { return id !== staffId; });
         }
-        if (typeof global.AppDaySlots.saveShifts === "function") {
-          global.AppDaySlots.saveShifts();
+        if (typeof global.AppDaySlots.saveStore === "function") {
+          global.AppDaySlots.saveStore();
         }
       }
 
@@ -204,8 +206,9 @@
   }
 
   global.AppDayRest = {
-    syncShiftsToState: syncShiftsToState,
-    syncSlotsToRosters: syncShiftsToState,
+    syncState: function () {},
+    syncShiftsToState: function () {},
+    syncSlotsToRosters: function () {},
     renderDaySchedule: renderDaySchedule
   };
 })(window);
