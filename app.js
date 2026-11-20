@@ -9,6 +9,13 @@
   if (workDateEl && !workDateEl.value) workDateEl.value = todayStr;
   if (workMonthEl && !workMonthEl.value) workMonthEl.value = monthStr;
 
+  var DEFAULT_TEAMS = [
+    { id: 1, name: "Tổ 1", note: "" },
+    { id: 2, name: "Tổ 2", note: "" }
+  ];
+
+  var teamsList = [];
+
   function initClient() {
     if (window.supabaseClient) return window.supabaseClient;
     var url = (typeof SUPABASE_URL !== "undefined" && SUPABASE_URL) ||
@@ -57,6 +64,274 @@
     });
   }
 
+  // Quản lý danh sách Tổ / Nhóm (Supabase teams + localStorage fallback)
+  function saveTeamsLocal(list) {
+    try {
+      localStorage.setItem("airport_teams_list", JSON.stringify(list));
+    } catch (e) {}
+  }
+
+  function loadTeams() {
+    var client = getClient();
+    if (!client) {
+      try {
+        var raw = JSON.parse(localStorage.getItem("airport_teams_list") || "null");
+        teamsList = Array.isArray(raw) && raw.length ? raw : DEFAULT_TEAMS.slice();
+      } catch (e) {
+        teamsList = DEFAULT_TEAMS.slice();
+      }
+      renderTeamSelectors();
+      renderTeamManageList();
+      return Promise.resolve(teamsList);
+    }
+
+    return client
+      .from("teams")
+      .select("*")
+      .order("id", { ascending: true })
+      .then(function (res) {
+        if (!res.error && Array.isArray(res.data) && res.data.length > 0) {
+          teamsList = res.data;
+          saveTeamsLocal(teamsList);
+        } else {
+          try {
+            var localRaw = JSON.parse(localStorage.getItem("airport_teams_list") || "null");
+            teamsList = Array.isArray(localRaw) && localRaw.length ? localRaw : DEFAULT_TEAMS.slice();
+          } catch (e) {
+            teamsList = DEFAULT_TEAMS.slice();
+          }
+        }
+        renderTeamSelectors();
+        renderTeamManageList();
+        return teamsList;
+      })
+      .catch(function () {
+        teamsList = DEFAULT_TEAMS.slice();
+        renderTeamSelectors();
+        renderTeamManageList();
+        return teamsList;
+      });
+  }
+
+  function getTeamNameById(groupId) {
+    var numId = Number(groupId || 1);
+    for (var i = 0; i < teamsList.length; i++) {
+      if (Number(teamsList[i].id) === numId) {
+        return teamsList[i].name;
+      }
+    }
+    return "Tổ " + numId;
+  }
+
+  function renderTeamSelectors() {
+    var ids = ["shiftGroupInput", "editShiftGroup"];
+    for (var sIdx = 0; sIdx < ids.length; sIdx++) {
+      var sel = document.getElementById(ids[sIdx]);
+      if (!sel) continue;
+      var currentVal = sel.value;
+      sel.innerHTML = "";
+      for (var i = 0; i < teamsList.length; i++) {
+        var opt = document.createElement("option");
+        opt.value = String(teamsList[i].id);
+        opt.textContent = teamsList[i].name + (teamsList[i].note ? " (" + teamsList[i].note + ")" : "");
+        sel.appendChild(opt);
+      }
+      if (currentVal) sel.value = currentVal;
+    }
+  }
+
+  function renderTeamManageList() {
+    var container = document.getElementById("teamListContainer");
+    if (!container) return;
+    container.innerHTML = "";
+
+    for (var i = 0; i < teamsList.length; i++) {
+      (function (t) {
+        var row = document.createElement("div");
+        row.className = "team-item";
+
+        var info = document.createElement("div");
+        info.innerHTML = "<strong>" + (t.name || ("Tổ " + t.id)) + "</strong>" +
+          (t.note ? " <span class='small-muted'>- " + t.note + "</span>" : "");
+
+        var btns = document.createElement("div");
+        btns.className = "action-btns";
+
+        var btnEdit = document.createElement("button");
+        btnEdit.type = "button";
+        btnEdit.className = "btn-primary btn-sm";
+        btnEdit.textContent = "Sửa";
+        btnEdit.addEventListener("click", function () {
+          openEditTeamModal(t);
+        });
+
+        var btnDel = document.createElement("button");
+        btnDel.type = "button";
+        btnDel.className = "btn-danger btn-sm";
+        btnDel.textContent = "Xóa";
+        btnDel.addEventListener("click", function () {
+          if (teamsList.length <= 1) {
+            alert("Cần giữ lại ít nhất 1 tổ / nhóm.");
+            return;
+          }
+          if (!confirm("Xóa " + (t.name || "tổ này") + "?")) return;
+          var client = getClient();
+          var afterDelete = function () {
+            teamsList = teamsList.filter(function (item) { return Number(item.id) !== Number(t.id); });
+            saveTeamsLocal(teamsList);
+            renderTeamSelectors();
+            renderTeamManageList();
+          };
+          if (client) {
+            client.from("teams").delete().eq("id", t.id).then(function () {
+              afterDelete();
+            });
+          } else {
+            afterDelete();
+          }
+        });
+
+        btns.appendChild(btnEdit);
+        btns.appendChild(btnDel);
+        row.appendChild(info);
+        row.appendChild(btns);
+        container.appendChild(row);
+      })(teamsList[i]);
+    }
+  }
+
+  var addTeamForm = document.getElementById("addTeamForm");
+  if (addTeamForm) {
+    addTeamForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (!isShiftLeader()) return alert("Chỉ Ca trưởng mới được thêm tổ / nhóm.");
+      var nameEl = document.getElementById("newTeamName");
+      var noteEl = document.getElementById("newTeamNote");
+      var name = nameEl ? nameEl.value.trim() : "";
+      var note = noteEl ? noteEl.value.trim() : "";
+      if (!name) return;
+
+      var client = getClient();
+      if (client) {
+        client.from("teams").insert({ name: name, note: note }).select().single().then(function (res) {
+          if (!res.error && res.data) {
+            teamsList.push(res.data);
+          } else {
+            var maxId = teamsList.reduce(function (m, item) { return Math.max(m, Number(item.id || 0)); }, 0);
+            teamsList.push({ id: maxId + 1, name: name, note: note });
+          }
+          saveTeamsLocal(teamsList);
+          addTeamForm.reset();
+          renderTeamSelectors();
+          renderTeamManageList();
+        });
+      } else {
+        var maxId = teamsList.reduce(function (m, item) { return Math.max(m, Number(item.id || 0)); }, 0);
+        teamsList.push({ id: maxId + 1, name: name, note: note });
+        saveTeamsLocal(teamsList);
+        addTeamForm.reset();
+        renderTeamSelectors();
+        renderTeamManageList();
+      }
+    });
+  }
+
+  var editTeamModal = document.getElementById("editTeamModal");
+  var btnCloseTeamModal = document.getElementById("btnCloseTeamModal");
+  if (btnCloseTeamModal) {
+    btnCloseTeamModal.addEventListener("click", function () {
+      if (editTeamModal) editTeamModal.classList.remove("open");
+    });
+  }
+
+  function openEditTeamModal(team) {
+    document.getElementById("editTeamId").value = team.id;
+    document.getElementById("editTeamName").value = team.name || "";
+    document.getElementById("editTeamNote").value = team.note || "";
+    if (editTeamModal) editTeamModal.classList.add("open");
+  }
+
+  var editTeamForm = document.getElementById("editTeamForm");
+  if (editTeamForm) {
+    editTeamForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var id = Number(document.getElementById("editTeamId").value);
+      var name = document.getElementById("editTeamName").value.trim();
+      var note = document.getElementById("editTeamNote").value.trim();
+      if (!name) return;
+
+      var applyLocalUpdate = function () {
+        for (var i = 0; i < teamsList.length; i++) {
+          if (Number(teamsList[i].id) === id) {
+            teamsList[i].name = name;
+            teamsList[i].note = note;
+          }
+        }
+        saveTeamsLocal(teamsList);
+        if (editTeamModal) editTeamModal.classList.remove("open");
+        renderTeamSelectors();
+        renderTeamManageList();
+        renderStaffList();
+      };
+
+      var client = getClient();
+      if (client) {
+        client.from("teams").update({ name: name, note: note }).eq("id", id).then(function () {
+          applyLocalUpdate();
+        });
+      } else {
+        applyLocalUpdate();
+      }
+    });
+  }
+
+  function isOffDay(staffId, rec) {
+    var leaves = (window.rosterState && window.rosterState.leavesByStaff) || {};
+    return Boolean((rec && rec.is_day_off) || leaves[staffId]);
+  }
+
+  // Cập nhật 5 thẻ thống kê trên Panel
+  function renderPanelStats() {
+    var allStaff = (window.rosterState && window.rosterState.staffList) || [];
+    var total = allStaff.length;
+    var oldCount = 0;
+    var newCount = 0;
+    var offTodayCount = 0;
+    var date = getSelectedDate();
+
+    for (var i = 0; i < allStaff.length; i++) {
+      var s = allStaff[i];
+      if (normalizeJobTitle(s) === "Chính thức") {
+        oldCount++;
+      } else {
+        newCount++;
+      }
+      var rec = (window.rosterState && window.rosterState.rostersByStaff)
+        ? window.rosterState.rostersByStaff[s.id]
+        : null;
+      if (!rec && typeof window.getOrCreateRoster === "function") {
+        rec = window.getOrCreateRoster(s.id, date);
+      }
+      if (isOffDay(s.id, rec)) {
+        offTodayCount++;
+      }
+    }
+
+    var workTodayCount = Math.max(0, total - offTodayCount);
+
+    var elTotal = document.getElementById("statTotalStaff");
+    var elNew = document.getElementById("statNewStaff");
+    var elOld = document.getElementById("statOldStaff");
+    var elWork = document.getElementById("statWorkToday");
+    var elOff = document.getElementById("statOffToday");
+
+    if (elTotal) elTotal.textContent = String(total);
+    if (elNew) elNew.textContent = String(newCount);
+    if (elOld) elOld.textContent = String(oldCount);
+    if (elWork) elWork.textContent = String(workTodayCount);
+    if (elOff) elOff.textContent = String(offTodayCount);
+  }
+
   function getMonthShiftDir(staff, ym) {
     var map = (window.rosterState && window.rosterState.monthShiftDirs) || {};
     if (map[staff.id]) return map[staff.id];
@@ -86,9 +361,11 @@
     if (tabBtn2) tabBtn2.textContent = leader ? "2. Cắt lịch trong ngày" : "2. Vị trí trong ngày";
     if (tabBtn3) tabBtn3.textContent = leader ? "3. Cắt lịch trong tháng" : "3. Lịch làm / OFF trong tháng";
 
+    var teamCard = document.getElementById("teamManageCard");
     var formCard = document.getElementById("staffFormCard");
     var myCard = document.getElementById("myPersonalCard");
     var staffTableCard = document.getElementById("staffTableCard");
+    if (teamCard) teamCard.style.display = leader ? "block" : "none";
     if (formCard) formCard.style.display = leader ? "block" : "none";
     if (myCard) myCard.style.display = leader ? "none" : "block";
     if (staffTableCard) staffTableCard.style.display = leader ? "block" : "none";
@@ -141,7 +418,9 @@
 
     applyRoleLabelsAndVisibility();
 
-    window.loadDashboardData().then(function () {
+    loadTeams().then(function () {
+      return window.loadDashboardData();
+    }).then(function () {
       if (staffRec.must_change_password) {
         openChangePassModal("Bạn đang đăng nhập lần đầu bằng mật khẩu mặc định 12345. Vui lòng đổi mật khẩu mới.");
       }
@@ -289,6 +568,7 @@
       : Promise.resolve();
 
     return task.then(function () {
+      renderPanelStats();
       renderMyPersonalCard();
       renderStaffList();
       renderStaffDropdown();
@@ -304,6 +584,7 @@
       : Promise.resolve();
 
     return task.then(function () {
+      renderPanelStats();
       renderMonthSchedule();
     });
   }
@@ -328,10 +609,10 @@
       '<div class="info-box"><div class="small-muted">Mã nhân viên</div><strong>' + (s.employee_code || "") + '</strong></div>' +
       '<div class="info-box"><div class="small-muted">Họ và tên</div><strong>' + (s.full_name || "") + '</strong></div>' +
       '<div class="info-box"><div class="small-muted">Chức danh</div><strong>' + normalizeJobTitle(s) + '</strong></div>' +
-      '<div class="info-box"><div class="small-muted">Tổ / Nhóm ca</div><strong>Tổ ' + (s.shift_group || 1) + '</strong></div>';
+      '<div class="info-box"><div class="small-muted">Tổ / Nhóm ca</div><strong>' + getTeamNameById(s.shift_group) + '</strong></div>';
   }
 
-  // TAB 1: THÔNG TIN NHÂN SỰ (Ca trưởng thêm, sửa chức danh & tổ ca, xóa, reset 12345)
+  // TAB 1: THÔNG TIN NHÂN SỰ
   var editModal = document.getElementById("editStaffModal");
   var btnCloseEditModal = document.getElementById("btnCloseEditModal");
   if (btnCloseEditModal) {
@@ -341,6 +622,7 @@
   }
 
   function openEditStaffModal(staff) {
+    renderTeamSelectors();
     document.getElementById("editStaffId").value = staff.id;
     document.getElementById("editEmpCode").value = staff.employee_code || "";
     document.getElementById("editFullName").value = staff.full_name || "";
@@ -399,7 +681,7 @@
         tr.appendChild(makeTextCell(s.employee_code || "", true));
         tr.appendChild(makeTextCell(s.full_name || "", false));
         tr.appendChild(makeTextCell(normalizeJobTitle(s), false));
-        tr.appendChild(makeTextCell("Tổ " + (s.shift_group || 1), false));
+        tr.appendChild(makeTextCell(getTeamNameById(s.shift_group), false));
         tr.appendChild(makeTextCell(s.must_change_password ? "Chưa đổi" : "Đã đổi", false));
 
         var actTd = document.createElement("td");
@@ -501,12 +783,7 @@
     });
   }
 
-  // TAB 2: CẮT LỊCH TRONG NGÀY (Ca trưởng chỉnh sửa; Nhân viên chỉ xem vị trí / nghỉ ngơi tại chỗ / OFF)
-  function isOffDay(staffId, rec) {
-    var leaves = (window.rosterState && window.rosterState.leavesByStaff) || {};
-    return Boolean((rec && rec.is_day_off) || leaves[staffId]);
-  }
-
+  // TAB 2: CẮT LỊCH TRONG NGÀY
   function renderStaffDropdown() {
     var sel = document.getElementById("offStaffSelect");
     if (!sel || !window.rosterState) return;
@@ -651,7 +928,10 @@
             var p = (typeof window.upsertSingleRoster === "function")
               ? window.upsertSingleRoster(rec)
               : Promise.resolve();
-            p.then(renderDaySchedule);
+            p.then(function () {
+              renderPanelStats();
+              renderDaySchedule();
+            });
           });
           actTd.appendChild(btnOff);
           tr.appendChild(actTd);
@@ -735,6 +1015,7 @@
         })(mapObj[keys[i]]);
       }
       chain.then(function () {
+        renderPanelStats();
         alert("Đã lưu lịch ngày " + getSelectedDate());
       }).catch(function (err) {
         alert("Lỗi lưu lịch: " + err.message);
@@ -748,7 +1029,7 @@
     });
   }
 
-  // TAB 3: CẮT LỊCH TRONG THÁNG (Hướng ca DEP/ARR tại tháng + Ngày làm / Ngày OFF)
+  // TAB 3: CẮT LỊCH TRONG THÁNG
   function renderMonthSchedule() {
     var tbody = document.getElementById("monthScheduleBody");
     if (!tbody || !window.rosterState) return;
@@ -831,7 +1112,6 @@
         tr.appendChild(makeTextCell(staff.full_name || "", true));
         tr.appendChild(makeTextCell(normalizeJobTitle(staff), false));
 
-        // Cột Hướng ca (DEP / ARR) đặt tại cắt lịch tháng
         var dirTd = document.createElement("td");
         var currentDir = getMonthShiftDir(staff, ym);
         if (leader) {
