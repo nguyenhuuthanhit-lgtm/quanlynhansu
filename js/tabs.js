@@ -12,8 +12,8 @@
       : Promise.resolve();
 
     return Promise.all([teamsTask, Promise.resolve(scheduleTask)]).then(function () {
-      if (global.AppDayRest && global.AppDayRest.syncSlotsToRosters) {
-        global.AppDayRest.syncSlotsToRosters(date);
+      if (global.AppDayRest && global.AppDayRest.syncShiftsToState) {
+        global.AppDayRest.syncShiftsToState();
       }
       if (global.AppStaffCrud && global.AppStaffCrud.renderMyPersonalCard) {
         global.AppStaffCrud.renderMyPersonalCard();
@@ -75,12 +75,6 @@
         else loadDashboardData();
       });
     })(tabButtons[t]);
-  }
-
-  if (Core && Core.workDateEl) {
-    Core.workDateEl.addEventListener("change", function () {
-      loadDashboardData();
-    });
   }
 
   document.addEventListener("DOMContentLoaded", function () {
