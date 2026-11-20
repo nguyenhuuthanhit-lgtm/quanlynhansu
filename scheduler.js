@@ -1,83 +1,113 @@
-const SchedulerService = {
-  parseShifts(rosterRow) {
-    let s1 = '', s2 = '', extra = [];
-    if (rosterRow?.duty_type) {
-      try {
-        const parsed = JSON.parse(rosterRow.duty_type);
-        s1 = parsed.s1 || '';
-        s2 = parsed.s2 || '';
-      } catch {
-        s1 = rosterRow.duty_type;
-      }
+(function () {
+  window.rosterState = {
+    staffList: [],
+    rostersByStaff: {},
+    leavesByStaff: {},
+    monthRosters: [],
+    monthLeaves: []
+  };
+
+  window.getOrCreateRoster = function (staffId, shiftDate) {
+    if (!window.rosterState.rostersByStaff[staffId]) {
+      window.rosterState.rostersByStaff[staffId] = {
+        staff_id: staffId,
+        shift_date: shiftDate,
+        duty_type: "NORMAL",
+        work_hours: "06:00-18:00",
+        shift_1: "",
+        shift_2: "",
+        extra_shifts: [],
+        break_off_slots: [],
+        is_day_off: false
+      };
     }
-    if (rosterRow?.rest_tier) {
-      try {
-        const parsedExtra = JSON.parse(rosterRow.rest_tier);
-        if (Array.isArray(parsedExtra)) extra = parsedExtra;
-      } catch {
-        extra = [rosterRow.rest_tier];
+    return window.rosterState.rostersByStaff[staffId];
+  };
+
+  window.fetchDailySchedule = function (shiftDate) {
+    var client = window.supabaseClient;
+    if (!client) return Promise.resolve();
+
+    return Promise.all([
+      client.from("profiles").select("*").eq("is_active", true).order("employee_code"),
+      client.from("daily_rosters").select("*").eq("shift_date", shiftDate),
+      client.from("leave_requests").select("*").eq("leave_date", shiftDate)
+    ]).then(function (results) {
+      window.rosterState.staffList = (results[0] && results[0].data) ? results[0].data : [];
+      window.rosterState.rostersByStaff = {};
+      window.rosterState.leavesByStaff = {};
+
+      var rosters = (results[1] && results[1].data) ? results[1].data : [];
+      for (var i = 0; i < rosters.length; i++) {
+        var r = rosters[i];
+        window.rosterState.rostersByStaff[r.staff_id] = Object.assign({}, r, {
+          work_hours: r.work_hours || "06:00-18:00",
+          extra_shifts: Array.isArray(r.extra_shifts) ? r.extra_shifts : [],
+          break_off_slots: Array.isArray(r.break_off_slots) ? r.break_off_slots : []
+        });
       }
-    }
-    return { s1, s2, extra };
-  },
 
-  async saveRoster(shiftDate, staffId, payload) {
-    const { data: existing } = await supabaseClient
-      .from('daily_rosters')
-      .select('*')
-      .eq('shift_date', shiftDate)
-      .eq('staff_id', staffId)
-      .maybeSingle();
+      var leaves = (results[2] && results[2].data) ? results[2].data : [];
+      for (var j = 0; j < leaves.length; j++) {
+        var l = leaves[j];
+        if (l.status !== "rejected") {
+          window.rosterState.leavesByStaff[l.staff_id] = l;
+        }
+      }
+    });
+  };
 
-    const currentShifts = this.parseShifts(existing);
-    const nextS1 = payload.s1 !== undefined ? payload.s1 : currentShifts.s1;
-    const nextS2 = payload.s2 !== undefined ? payload.s2 : currentShifts.s2;
-    const nextExtra = payload.extra !== undefined ? payload.extra : currentShifts.extra;
+  window.fetchMonthlySchedule = function (yearMonth) {
+    var client = window.supabaseClient;
+    if (!client) return Promise.resolve();
 
-    const record = {
-      shift_date: shiftDate,
-      staff_id: staffId,
-      duty_type: JSON.stringify({ s1: nextS1, s2: nextS2 }),
-      rest_tier: JSON.stringify(nextExtra),
-      day_rest_slot: payload.day_rest_slot !== undefined ? payload.day_rest_slot : (existing?.day_rest_slot || null),
-      night_rest_slot: payload.night_rest_slot !== undefined ? payload.night_rest_slot : (existing?.night_rest_slot || null)
+    var parts = yearMonth.split("-");
+    var y = Number(parts[0]);
+    var m = Number(parts[1]);
+    var startDate = yearMonth + "-01";
+    var lastDay = new Date(y, m, 0).getDate();
+    var endDate = yearMonth + "-" + String(lastDay).padStart(2, "0");
+
+    return Promise.all([
+      client.from("profiles").select("*").eq("is_active", true).order("employee_code"),
+      client.from("daily_rosters").select("*").gte("shift_date", startDate).lte("shift_date", endDate),
+      client.from("leave_requests").select("*").gte("leave_date", startDate).lte("leave_date", endDate)
+    ]).then(function (results) {
+      window.rosterState.staffList = (results[0] && results[0].data) ? results[0].data : [];
+      window.rosterState.monthRosters = (results[1] && results[1].data) ? results[1].data : [];
+      window.rosterState.monthLeaves = (results[2] && results[2].data) ? results[2].data : [];
+    });
+  };
+
+  window.upsertSingleRoster = function (rec) {
+    var client = window.supabaseClient;
+    if (!client) return Promise.resolve();
+
+    var payload = {
+      staff_id: rec.staff_id,
+      shift_date: rec.shift_date,
+      duty_type: rec.is_day_off ? "OFF" : "NORMAL",
+      shift_1: rec.shift_1 || "",
+      shift_2: rec.shift_2 || "",
+      extra_shifts: rec.extra_shifts || [],
+      break_off_slots: rec.break_off_slots || [],
+      is_day_off: !!rec.is_day_off
     };
 
-    if (existing?.id) {
-      const { error } = await supabaseClient.from('daily_rosters').update(record).eq('id', existing.id);
-      if (error) alert('Lỗi lưu ca trực: ' + error.message);
-    } else {
-      const { error } = await supabaseClient.from('daily_rosters').insert(record);
-      if (error) alert('Lỗi tạo ca trực: ' + error.message);
-    }
-  },
-
-  async setDayOff(shiftDate, staffId, isOff) {
-    if (isOff) {
-      const { data: exist } = await supabaseClient
-        .from('leave_requests')
-        .select('id')
-        .eq('staff_id', staffId)
-        .eq('leave_date', shiftDate)
-        .maybeSingle();
-
-      if (!exist) {
-        const { error } = await supabaseClient.from('leave_requests').insert({
-          staff_id: staffId,
-          leave_date: shiftDate,
-          reason: 'Ca trưởng cắt OFF',
-          status: 'approved',
-          approved_by: currentUser?.id || null
+    if (rec.id) {
+      return client.from("daily_rosters").update(payload).eq("id", rec.id).select().single()
+        .then(function (upd) {
+          if (upd.error) throw upd.error;
+          Object.assign(rec, upd.data);
+          return rec;
         });
-        if (error) alert('Lỗi cắt ngày OFF: ' + error.message);
-      }
-    } else {
-      const { error } = await supabaseClient
-        .from('leave_requests')
-        .delete()
-        .eq('staff_id', staffId)
-        .eq('leave_date', shiftDate);
-      if (error) alert('Lỗi hủy ngày OFF: ' + error.message);
     }
-  }
-};
+
+    return client.from("daily_rosters").insert(payload).select().single()
+      .then(function (ins) {
+        if (ins.error) throw ins.error;
+        Object.assign(rec, ins.data);
+        return rec;
+      });
+  };
+})();
